@@ -1,0 +1,7 @@
+# 本地数据：config.json 里有 API Key / 邮箱，缓存和提醒记录也只属于本机
+data/
+# Python / macOS / exFAT 产生的文件
+__pycache__/
+*.pyc
+._*
+.DS_Store

@@ -1,0 +1,9 @@
+/* 在线演示版的提示条：固定在页面底部中间，不挤占原有布局 */
+.demo-bar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 300; display: flex; align-items: center; gap: 12px;
+  max-width: calc(100vw - 32px); padding: 8px 14px; font: 600 12.5px var(--font, sans-serif); color: var(--text, #111);
+  background: color-mix(in srgb, var(--accent, #38bdf8) 12%, var(--bg, #fff)); border: 1px solid color-mix(in srgb, var(--accent, #38bdf8) 60%, transparent);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .35); flex-wrap: wrap; }
+.demo-bar b { padding: 1px 8px; color: #04070b; background: var(--accent, #38bdf8); letter-spacing: .12em; }
+.demo-when { color: var(--muted, #666); font-family: var(--mono, monospace); font-weight: 500; }
+.demo-bar a { color: var(--accent, #2563eb); text-decoration: none; white-space: nowrap; }
+.demo-bar a:hover { text-decoration: underline; }

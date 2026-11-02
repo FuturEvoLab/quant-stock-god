@@ -1,0 +1,57 @@
+/* 量化股神 — 黑金配色覆盖层（由 tools/make_gold_css.py 从 HUD 主题自动生成，请勿手改；手写部分在 quant.css）*/
+/* 未转换的 @keyframes：@keyframes brandGlitch */
+/* ---- 来自 hud.css ---- */
+:root[data-theme="dark"][data-palette="gold"] { --surface-3: rgba(255, 201, 60, .08); --border: rgba(255, 201, 60, .16); --border-strong: rgba(255, 201, 60, .34); --text: #fff6df; --text-2: #e3cf9c; --muted: #8c7a52; --accent: #ffc93c; --accent-ink: #1a1200; --accent-soft: rgba(255, 201, 60, .12); --node: #c9a24a; --grid-dot: rgba(255, 201, 60, .09); --shadow: inset 0 0 24px rgba(255, 201, 60, .04); --glow: 0 0 10px rgba(255, 201, 60, .55), 0 0 22px rgba(255, 201, 60, .25); }
+:root[data-theme="dark"][data-palette="gold"] body { background:
+    radial-gradient(ellipse at 50% -10%, rgba(255, 201, 60, .10), transparent 55%),
+    radial-gradient(ellipse at 100% 100%, rgba(255, 59, 107, .05), transparent 50%),
+    linear-gradient(rgba(255, 201, 60, .035) 1px, transparent 1px) 0 0 / 40px 40px,
+    linear-gradient(90deg, rgba(255, 201, 60, .035) 1px, transparent 1px) 0 0 / 40px 40px,
+    var(--bg); }
+:root[data-theme="dark"][data-palette="gold"] body::after { background: linear-gradient(to bottom, transparent, rgba(255, 201, 60, .022) 50%, transparent); }
+:root[data-theme="dark"][data-palette="gold"] .graph-wrap::before { background: repeating-radial-gradient(circle, transparent 0 89px, rgba(255, 201, 60, .07) 89px 90px); }
+:root[data-theme="dark"][data-palette="gold"] .graph-wrap::after { background: conic-gradient(from 0deg, rgba(255, 201, 60, .07), transparent 20%); }
+:root[data-theme="dark"][data-palette="gold"] .page-head h1 { text-shadow: 0 0 18px rgba(255, 201, 60, .35); }
+:root[data-theme="dark"][data-palette="gold"] td { border-bottom-color: rgba(255, 201, 60, .08); }
+:root[data-theme="dark"][data-palette="gold"] tr:hover td { background: rgba(255, 201, 60, .05); }
+:root[data-theme="dark"][data-palette="gold"] .table-wrap { border-color: rgba(255, 201, 60, .14); }
+:root[data-theme="dark"][data-palette="gold"] .nav { box-shadow: inset -1px 0 0 rgba(255, 201, 60, .05), 8px 0 30px rgba(0, 0, 0, .4); }
+:root[data-theme="dark"][data-palette="gold"] .tabs button.active { background: linear-gradient(90deg, rgba(255, 201, 60, .16), transparent); text-shadow: 0 0 10px rgba(255, 201, 60, .6); }
+:root[data-theme="dark"][data-palette="gold"] input:focus, :root[data-theme="dark"][data-palette="gold"] select:focus { box-shadow: 0 0 0 1px var(--accent), 0 0 14px rgba(255, 201, 60, .3); }
+:root[data-theme="dark"][data-palette="gold"] button.primary { box-shadow: 0 0 18px rgba(255, 201, 60, .35); }
+:root[data-theme="dark"][data-palette="gold"] button.primary:hover { box-shadow: 0 0 26px rgba(255, 201, 60, .55); }
+:root[data-theme="dark"][data-palette="gold"] :is(button.ghost, :root[data-palette="gold"] .btn.ghost):hover, :root[data-theme="dark"][data-palette="gold"] button:not(.primary):hover { box-shadow: 0 0 12px rgba(255, 201, 60, .25); background: rgba(255, 201, 60, .06); }
+:root[data-theme="dark"][data-palette="gold"] .searchbar :is(select, :root[data-palette="gold"] input) { background: rgba(255, 201, 60, .05); }
+:root[data-theme="dark"][data-palette="gold"] .switch input:checked + i { box-shadow: 0 0 10px rgba(255, 201, 60, .5); }
+:root[data-theme="dark"][data-palette="gold"] .addr-box { background: rgba(255, 201, 60, .04); }
+:root[data-theme="dark"][data-palette="gold"] .spinner { border-color: rgba(255, 201, 60, .15); box-shadow: 0 0 18px rgba(255, 201, 60, .3); }
+:root[data-theme="dark"][data-palette="gold"] .empty-art circle { fill: rgba(255, 201, 60, .06); stroke: rgba(255, 201, 60, .4); }
+:root[data-theme="dark"][data-palette="gold"] .recent-chip { background: rgba(255, 201, 60, .04); }
+:root[data-theme="dark"][data-palette="gold"] .ie-icon { background: rgba(255, 201, 60, .06); }
+:root[data-theme="dark"][data-palette="gold"] ::-webkit-scrollbar-thumb { background: rgba(255, 201, 60, .25); }
+:root[data-theme="dark"][data-palette="gold"] .reactor { filter: drop-shadow(0 0 6px rgba(255, 201, 60, .7)); }
+:root[data-palette="gold"] #boot { background: radial-gradient(circle at 50% 45%, rgba(255, 201, 60, .12), transparent 55%), #01050a; color: #ffc93c; }
+:root[data-palette="gold"] #boot .reactor-big { filter: drop-shadow(0 0 18px rgba(255, 201, 60, .8)); }
+:root[data-palette="gold"] #boot .lines { color: #e9cf86; }
+:root[data-palette="gold"] #boot .title { text-shadow: 0 0 18px rgba(255, 201, 60, .8); }
+:root[data-palette="gold"] #boot .skip { color: #7d6a3e; }
+:root[data-theme="dark"][data-palette="gold"] #hud-tip { box-shadow: inset 0 0 20px rgba(255, 201, 60, .06); }
+:root[data-palette="gold"] h1.glitch::after { color: #ffc93c; }
+:root[data-palette="gold"] .loader-reactor { filter: drop-shadow(0 0 12px rgba(255, 201, 60, .7)); }
+:root[data-palette="gold"] .scanbar { background: rgba(255, 201, 60, .12); }
+:root[data-palette="gold"] .ambient i:nth-child(1) { background: radial-gradient(circle, rgba(255, 201, 60, .085), transparent 62%); }
+:root[data-theme="dark"][data-palette="gold"] .hb-reactor { filter: drop-shadow(0 0 4px rgba(255, 201, 60, .8)); }
+:root[data-theme="dark"][data-palette="gold"] .hudbar > :is(.live, :root[data-palette="gold"] .tick, :root[data-palette="gold"] #hud-watch, :root[data-palette="gold"] .clock, :root[data-palette="gold"] .hb-gas) { border-left: 1px solid rgba(255, 201, 60, .14); }
+:root[data-palette="gold"] .spark .area { fill: rgba(255, 201, 60, .08); }
+:root[data-palette="gold"] .sb-halo { fill: rgba(255, 201, 60, .06) !important; }
+:root[data-palette="gold"] .sb-graph circle { fill: rgba(255, 201, 60, .08); }
+
+/* ---- 来自 nav.css ---- */
+:root[data-theme="dark"][data-palette="gold"] .nav { background:
+    linear-gradient(180deg, rgba(255, 201, 60, .05), transparent 30%),
+    repeating-linear-gradient(0deg, rgba(255, 201, 60, .025) 0 1px, transparent 1px 24px),
+    rgba(2, 10, 17, .94); }
+:root[data-theme="dark"][data-palette="gold"] .nav .tabs button.active .ni-txt b { text-shadow: 0 0 12px rgba(255, 201, 60, .55); }
+
+/* ---- 来自 market.css ---- */
+:root[data-theme="dark"][data-palette="gold"] .hudbar > .hb-fng { border-left: 1px solid rgba(255, 201, 60, .14); }

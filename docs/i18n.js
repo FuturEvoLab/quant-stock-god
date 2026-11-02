@@ -1,0 +1,765 @@
+// 量化股神 — 多语言（日本語 / 中文 / English），沿用区块侦探的做法：
+// 界面文案以中文为基准写在代码里，这一层把页面上出现的中文文字（文本节点和 placeholder/title 属性）
+// 按当前语言自动替换；动态生成的内容由 MutationObserver 实时处理。系统弹窗也经过 tr()。
+
+const LANGS = { en: "EN", ja: "日本語", zh: "中文" }; // 默认英语，其次日语、中文
+
+// [中文, 日本語, English]
+const ENTRIES = [
+  // ---- 导航 / 通用
+  ["量化股神", "量化株神", "Quant Stock God"],
+  ["市场总览", "マーケット概況", "Market Overview"],
+  ["自选监控", "ウォッチリスト", "Watchlist"],
+  ["聪明钱", "スマートマネー", "Smart Money"],
+  ["商品持仓", "商品ポジション", "COT Positioning"],
+  ["设置", "設定", "Settings"],
+  ["市场总览（快捷键 1）", "マーケット概況（ショートカット 1）", "Market Overview (shortcut 1)"],
+  ["自选监控（快捷键 2）", "ウォッチリスト（ショートカット 2）", "Watchlist (shortcut 2)"],
+  ["聪明钱（快捷键 3）", "スマートマネー（ショートカット 3）", "Smart Money (shortcut 3)"],
+  ["商品持仓（快捷键 4）", "商品ポジション（ショートカット 4）", "COT Positioning (shortcut 4)"],
+  ["切换主题", "テーマ切替", "Theme"],
+  ["切换浅色/深色", "ライト / ダーク切替", "Toggle light / dark"],
+  ["收起 / 展开侧栏", "サイドバーを折りたたむ / 開く", "Collapse / expand sidebar"],
+  ["点击查看自选监控", "クリックでウォッチリストを開く", "Click to open Watchlist"],
+  ["恐惧与贪婪指数（点击查看市场总览）", "恐怖と強欲指数（クリックでマーケット概況）", "Fear & Greed (click for Market Overview)"],
+  ["语言", "言語", "Language"],
+  ["外观", "外観", "Appearance"],
+  ["服务", "サービス", "Service"],
+  ["重启服务", "サービス再起動", "Restart service"],
+  ["改了 server.py 后点这里生效；只改了界面文件刷新页面即可", "server.py を変更したらここで反映。画面ファイルだけの変更ならページ更新で OK", "Click after changing server.py; for front-end-only changes just reload the page"],
+  ["服务端代码已更新，重启后生效", "サーバーのコードが更新されました。再起動で反映されます", "Server code changed — restart to apply"],
+  ["界面文件已更新", "画面ファイルが更新されました", "Front-end files changed"],
+  ["刷新页面", "ページを更新", "Reload page"],
+  ["正在重启服务…", "サービスを再起動中…", "Restarting service…"],
+  ["服务没有在 30 秒内恢复，请查看日志或手动启动", "30 秒以内にサービスが復帰しませんでした。ログを確認するか手動で起動してください", "The service did not come back within 30 s — check the log or start it manually"],
+  ["重启服务？大约几秒钟，页面会自动刷新。", "サービスを再起動しますか？数秒でページが自動的に更新されます。", "Restart the service? It takes a few seconds and the page reloads automatically."],
+  ["地址", "アドレス", "Address"],
+  ["启动于", "起動時刻", "Started"],
+  ["开机自启", "自動起動", "Autostart"],
+  ["已开启", "オン", "On"],
+  ["未开启", "オフ", "Off"],
+  ["日志", "ログ", "Log"],
+  ["配色方案", "配色", "Color scheme"],
+  ["蓝色 HUD", "ブルー HUD", "Blue HUD"],
+  ["黑金", "ブラックゴールド", "Black gold"],
+  ["浅色", "ライト", "Light"],
+  ["切换配色", "配色切替", "Color scheme"],
+  ["切换配色：蓝色 HUD → 黑金 → 浅色", "配色切替：ブルー HUD → ブラックゴールド → ライト", "Switch color scheme: Blue HUD → Black gold → Light"],
+  ["刷新", "更新", "Refresh"],
+  ["立即刷新", "今すぐ更新", "Refresh now"],
+  ["删除", "削除", "Delete"],
+  ["修改", "編集", "Edit"],
+  ["已保存", "保存しました", "Saved"],
+  ["暂无数据", "データなし", "No data"],
+  ["暂无", "なし", "None"],
+  ["从未", "未実行", "never"],
+  ["刚刚", "たった今", "just now"],
+  ["自动生成", "自動生成", "Auto-generated"],
+  ["适应窗口", "ウィンドウに合わせる", "Fit to view"],
+  ["已配置", "設定済み", "Configured"],
+  ["未配置", "未設定", "Not set"],
+  ["正常", "正常", "Normal"],
+  ["缓存", "キャッシュ", "Cached"],
+  ["获取失败", "取得失敗", "Failed"],
+
+  // ---- 品种详情 / 自选技术指标
+  ["点击查看详情", "クリックで詳細", "Click for details"],
+  ["RSI 超买", "RSI 買われ過ぎ", "RSI overbought"],
+  ["RSI 超卖", "RSI 売られ過ぎ", "RSI oversold"],
+  ["52 周新高", "52 週高値更新", "52-wk high"],
+  ["52 周新低", "52 週安値更新", "52-wk low"],
+  ["RSI 超买 / 超卖", "RSI 買われ過ぎ / 売られ過ぎ", "RSI overbought / oversold"],
+  ["52 周新高 / 新低", "52 週高値 / 安値更新", "52-wk high / low"],
+  ["RSI(14) 当天升破 70 或跌破 30 时提醒（昨天收盘还不在该区间）", "RSI(14) が当日 70 を上抜け、または 30 を下抜けたときに通知（前日終値時点ではその圏外）", "Alert when RSI(14) crosses above 70 or below 30 today (it was outside that zone at yesterday's close)"],
+  ["现价高于此前 52 周最高收盘价，或低于最低收盘价时提醒", "現在値が過去 52 週の最高終値を上回る、または最安終値を下回ったときに通知", "Alert when the price goes above the prior 52-week highest close or below the lowest close"],
+  ["由本地服务在后台定时检查自选列表：当日涨跌幅绝对值 ≥ 设定百分比、成交量 ≥ 20 日均量的设定倍数、RSI 当天进入超买 / 超卖区，或创 52 周新高 / 新低，就推送 macOS 系统通知。同一品种同一交易日的同类异动只提醒一次。网页不用开着，只要服务在运行即可。",
+    "ローカルサーバーがバックグラウンドでウォッチリストを定期チェックします。当日騰落率の絶対値が設定 % 以上、出来高が 20 日平均の設定倍率以上、RSI が当日買われ過ぎ / 売られ過ぎ圏に入った、または 52 週高値 / 安値を更新したときに macOS 通知を送ります。同じ銘柄・同じ取引日・同じ種類のアラートは 1 回だけ。サーバーが動いていればページを開いておく必要はありません。",
+    "The local server checks your watchlist in the background. It sends a macOS notification when the day's move is at least the set %, volume is at least the set multiple of its 20-day average, RSI enters overbought / oversold today, or the price makes a new 52-week high / low. Each symbol gets one alert per type per trading day. The page doesn't need to stay open, only the server."],
+  ["股票盘中成交量按时段折算成全天预估（*）；期货为当日累计，盘中偏低", "株式の取引時間中の出来高は 1 日分の推定値に換算（*）。先物は当日累計のため取引中は低めに出ます", "Intraday stock volume is scaled to a full-day estimate (*); futures show the running total, which reads low during the session"],
+  ["关闭", "閉じる", "Close"],
+  ["收盘价", "終値", "Close"],
+  ["20 日均线", "20 日移動平均", "20-day MA"],
+  ["50 日均线", "50 日移動平均", "50-day MA"],
+  ["200 日均线", "200 日移動平均", "200-day MA"],
+  ["52 周区间", "52 週レンジ", "52-wk range"],
+  ["52 周区间位置", "52 週レンジ内の位置", "52-wk range position"],
+  ["52 周高点", "52 週高値", "52-wk high"],
+  ["52 周低点", "52 週安値", "52-wk low"],
+  ["距 20 日均线", "20 日線との乖離", "vs 20-day MA"],
+  ["距 50 日均线", "50 日線との乖離", "vs 50-day MA"],
+  ["距 200 日均线", "200 日線との乖離", "vs 200-day MA"],
+  ["20 日波动率（年化）", "20 日ボラティリティ（年率）", "20-day volatility (ann.)"],
+  ["1 年波动率（年化）", "1 年ボラティリティ（年率）", "1-yr volatility (ann.)"],
+  ["1 年最大回撤", "1 年最大ドローダウン", "1-yr max drawdown"],
+  ["技术面要点", "テクニカル要点", "Technical notes"],
+  ["盘中成交量已按交易时段进度折算成全天预估量", "取引時間中の出来高は、経過時間の割合から 1 日分の推定値に換算しています", "Intraday volume is scaled to a full-day estimate by how much of the session has elapsed"],
+  ["盘中按交易时段进度折算成全天预估量", "取引時間中は経過時間の割合から 1 日分の推定出来高に換算", "During the session, scaled to a full-day estimate by elapsed time"],
+  ["按日收盘价计算，只是客观描述，不构成投资建议。", "日次終値ベースの客観的な記述であり、投資助言ではありません。", "Based on daily closes. Objective description only, not investment advice."],
+  ["14 日相对强弱指数：≥70 超买，≤30 超卖", "14 日 RSI：70 以上は買われ過ぎ、30 以下は売られ過ぎ", "14-day RSI: ≥70 overbought, ≤30 oversold"],
+  ["现价在 52 周最低价与最高价之间的位置（按收盘价）", "52 週の最安値〜最高値の間での現在値の位置（終値ベース）", "Where the price sits between the 52-week low and high (closing prices)"],
+  ["价格位于 200 日均线上方", "価格は 200 日移動平均より上", "Price is above the 200-day MA"],
+  ["价格位于 200 日均线下方", "価格は 200 日移動平均より下", "Price is below the 200-day MA"],
+  ["50 日均线在 200 日均线上方", "50 日線は 200 日線より上", "50-day MA is above the 200-day MA"],
+  ["50 日均线在 200 日均线下方", "50 日線は 200 日線より下", "50-day MA is below the 200-day MA"],
+  ["RSI 处于超买区间（≥70）", "RSI は買われ過ぎ圏（70 以上）", "RSI is in overbought territory (≥70)"],
+  ["RSI 处于超卖区间（≤30）", "RSI は売られ過ぎ圏（30 以下）", "RSI is in oversold territory (≤30)"],
+  ["RSI 处于中性区间", "RSI は中立圏", "RSI is in the neutral range"],
+  ["接近 52 周高点", "52 週高値に接近", "Near the 52-week high"],
+  ["接近 52 周低点", "52 週安値に接近", "Near the 52-week low"],
+  ["近期波动明显高于一年平均", "直近のボラティリティは 1 年平均を大きく上回る", "Recent volatility is well above its 1-year average"],
+  ["近期波动明显低于一年平均", "直近のボラティリティは 1 年平均を大きく下回る", "Recent volatility is well below its 1-year average"],
+  ["成交量明显高于 20 日均量", "出来高は 20 日平均を大きく上回る", "Volume is well above its 20-day average"],
+
+  // ---- 市场总览
+  ["美股、港股、日股指数，美债收益率、美元、波动率，以及黄金、白银、原油、铜、天然气期货，一页看清市场温度。行情约延迟 15 分钟，每 5 分钟刷新。",
+    "米国・香港・日本の株価指数、米国債利回り、ドル、ボラティリティ、そして金・銀・原油・銅・天然ガス先物を 1 ページで把握。相場は約 15 分遅延、5 分ごとに更新します。",
+    "US, Hong Kong and Japan indices, Treasury yields, the dollar, volatility, plus gold, silver, crude, copper and natgas futures on one page. Quotes are ~15 min delayed and refresh every 5 minutes."],
+  ["恐惧与贪婪指数", "恐怖と強欲指数", "Fear & Greed Index"],
+  ["恐惧与贪婪", "恐怖と強欲", "Fear & Greed"],
+  ["市场解读", "マーケット解説", "Market Readout"],
+  ["根据公开数据自动生成的客观描述，仅供参考，不构成投资建议。", "公開データから自動生成した客観的な記述です。参考情報であり、投資助言ではありません。", "Objective notes generated automatically from public data. For reference only, not investment advice."],
+  ["指数 · 利率 · 美元", "指数 · 金利 · ドル", "Indices · Rates · Dollar"],
+  ["Yahoo Finance · 日线", "Yahoo Finance · 日足", "Yahoo Finance · daily"],
+  ["大宗商品期货", "商品先物", "Commodity Futures"],
+  ["COMEX / NYMEX / ICE 主力连续合约", "COMEX / NYMEX / ICE 期近つなぎ足", "COMEX / NYMEX / ICE front-month continuous"],
+  ["情绪走势", "センチメント推移", "Sentiment Trend"],
+  ["30 天", "30 日", "30 D"],
+  ["90 天", "90 日", "90 D"],
+  ["1 年", "1 年", "1 Y"],
+  ["极度恐慌", "極度の恐怖", "Extreme Fear"],
+  ["恐慌", "恐怖", "Fear"],
+  ["中性", "中立", "Neutral"],
+  ["贪婪", "強欲", "Greed"],
+  ["极度贪婪", "極度の強欲", "Extreme Greed"],
+  ["昨天", "昨日", "Yesterday"],
+  ["1 周前", "1 週間前", "1 week ago"],
+  ["1 个月前", "1 か月前", "1 month ago"],
+  ["动量", "モメンタム", "Momentum"],
+  ["波动", "ボラティリティ", "Volatility"],
+  ["避险需求", "安全資産需要", "Safe-haven demand"],
+  ["垃圾债需求", "ジャンク債需要", "Junk-bond demand"],
+  ["CNN（非官方）", "CNN（非公式）", "CNN (unofficial)"],
+  ["本地合成指数", "ローカル合成指数", "Local composite index"],
+  ["CNN 接口不可用，改用免费行情计算的同类指数", "CNN のエンドポイントが使えないため、無料の相場データで同種の指数を算出しています", "CNN endpoint unavailable; showing a similar index computed from free market data"],
+  ["正在获取行情…", "相場を取得中…", "Fetching quotes…"],
+  ["Yahoo 暂时限流，部分品种显示的是本地缓存数据", "Yahoo のレート制限中のため、一部はローカルキャッシュを表示しています", "Yahoo is rate-limiting; some items show locally cached data"],
+  ["恒生指数", "ハンセン指数", "Hang Seng"],
+  ["日经 225", "日経 225", "Nikkei 225"],
+  ["美债 10Y", "米国債 10 年", "US 10Y"],
+  ["美元指数", "ドル指数", "Dollar Index"],
+  ["黄金", "金", "Gold"],
+  ["白银", "銀", "Silver"],
+  ["WTI 原油", "WTI 原油", "WTI Crude"],
+  ["布伦特原油", "ブレント原油", "Brent Crude"],
+  ["铜", "銅", "Copper"],
+  ["天然气", "天然ガス", "Natural Gas"],
+  // 市场解读
+  ["情绪处于极度恐慌区间", "センチメントは極度の恐怖ゾーン", "Sentiment is in the extreme-fear zone"],
+  ["情绪偏向恐慌", "センチメントは恐怖寄り", "Sentiment leans fearful"],
+  ["情绪中性", "センチメントは中立", "Sentiment is neutral"],
+  ["情绪偏向贪婪", "センチメントは強欲寄り", "Sentiment leans greedy"],
+  ["情绪处于极度贪婪区间", "センチメントは極度の強欲ゾーン", "Sentiment is in the extreme-greed zone"],
+  ["情绪变化", "センチメント変化", "Sentiment change"],
+  ["一周内情绪明显转冷", "1 週間でセンチメントが明確に冷え込み", "Sentiment cooled markedly within a week"],
+  ["一周内情绪明显升温", "1 週間でセンチメントが明確に過熱", "Sentiment heated up markedly within a week"],
+  ["VIX 波动率", "VIX ボラティリティ", "VIX volatility"],
+  ["波动率处于高位，市场避险情绪强", "ボラティリティは高水準、リスク回避姿勢が強い", "Volatility is high; risk aversion is strong"],
+  ["波动率偏高", "ボラティリティはやや高め", "Volatility is somewhat elevated"],
+  ["波动率处于低位，市场较平静", "ボラティリティは低水準、市場は落ち着いている", "Volatility is low; the market is calm"],
+  ["波动率处于常规水平", "ボラティリティは通常の水準", "Volatility is at a normal level"],
+  ["美股一个月内明显回落", "米国株は 1 か月で明確に下落", "US stocks fell noticeably over the month"],
+  ["美股一个月内明显上涨", "米国株は 1 か月で明確に上昇", "US stocks rose noticeably over the month"],
+  ["美股一个月内波动不大", "米国株は 1 か月で大きな変動なし", "US stocks were little changed over the month"],
+  ["美债 10Y · 1M", "米国債 10 年 · 1M", "US 10Y · 1M"],
+  ["长端收益率一个月内明显上行", "長期金利は 1 か月で明確に上昇", "Long-end yields rose noticeably over the month"],
+  ["长端收益率一个月内明显下行", "長期金利は 1 か月で明確に低下", "Long-end yields fell noticeably over the month"],
+  ["长端收益率一个月内变化不大", "長期金利は 1 か月で大きな変化なし", "Long-end yields were little changed over the month"],
+  ["美元指数 · 1M", "ドル指数 · 1M", "Dollar Index · 1M"],
+  ["美元一个月内明显走强", "ドルは 1 か月で明確に上昇", "The dollar strengthened noticeably over the month"],
+  ["美元一个月内明显走弱", "ドルは 1 か月で明確に下落", "The dollar weakened noticeably over the month"],
+  ["美元一个月内基本持平", "ドルは 1 か月でほぼ横ばい", "The dollar was roughly flat over the month"],
+  ["港股 vs 美股 · 1M", "香港株 vs 米国株 · 1M", "HK vs US stocks · 1M"],
+  ["港股一个月内明显跑赢美股", "香港株は 1 か月で米国株を明確にアウトパフォーム", "HK stocks clearly outperformed US stocks over the month"],
+  ["港股一个月内明显跑输美股", "香港株は 1 か月で米国株を明確にアンダーパフォーム", "HK stocks clearly underperformed US stocks over the month"],
+  ["黄金 · 1M", "金 · 1M", "Gold · 1M"],
+  ["金价一个月内明显上涨", "金価格は 1 か月で明確に上昇", "Gold rose noticeably over the month"],
+  ["金价一个月内明显回落", "金価格は 1 か月で明確に下落", "Gold fell noticeably over the month"],
+  ["金价一个月内波动不大", "金価格は 1 か月で大きな変動なし", "Gold was little changed over the month"],
+  ["WTI 原油 · 1M", "WTI 原油 · 1M", "WTI Crude · 1M"],
+  ["油价一个月内明显上涨", "原油価格は 1 か月で明確に上昇", "Oil rose noticeably over the month"],
+  ["油价一个月内明显下跌", "原油価格は 1 か月で明確に下落", "Oil fell noticeably over the month"],
+  ["油价一个月内波动不大", "原油価格は 1 か月で大きな変動なし", "Oil was little changed over the month"],
+  ["铜金比 · 1M", "銅金比率 · 1M", "Copper/Gold · 1M"],
+  ["铜相对黄金走强（常被视为增长预期改善）", "銅が金に対して上昇（成長期待の改善とみなされることが多い）", "Copper outperformed gold (often read as improving growth expectations)"],
+  ["铜相对黄金走弱（常被视为增长预期转弱）", "銅が金に対して下落（成長期待の悪化とみなされることが多い）", "Copper underperformed gold (often read as weakening growth expectations)"],
+
+  // ---- 自选监控
+  ["美股、港股（代码加 .HK）和期货（如 GC=F）。当日涨跌幅或成交量超过设定值时高亮，开启后台提醒后会推送 macOS 通知。",
+    "米国株、香港株（コードに .HK）、先物（例 GC=F）。当日の騰落率や出来高が設定値を超えるとハイライトし、バックグラウンド通知をオンにすると macOS 通知を送ります。",
+    "US stocks, HK stocks (add .HK) and futures (e.g. GC=F). Rows are highlighted when today's move or volume exceeds your thresholds; with background alerts on, a macOS notification is sent."],
+  ["后台异动提醒", "バックグラウンド急変アラート", "Background Alerts"],
+  ["开启后台提醒", "バックグラウンド通知を有効化", "Enable background alerts"],
+  ["检查间隔", "チェック間隔", "Interval"],
+  ["每 5 分钟", "5 分ごと", "Every 5 min"],
+  ["每 15 分钟", "15 分ごと", "Every 15 min"],
+  ["每 30 分钟", "30 分ごと", "Every 30 min"],
+  ["每 60 分钟", "60 分ごと", "Every 60 min"],
+  ["提示音", "通知音", "Sound"],
+  ["发送测试通知", "テスト通知を送信", "Send test notification"],
+  ["立即检查一次", "今すぐチェック", "Check now"],
+  ["添加 / 修改自选", "ウォッチリストに追加 / 編集", "Add / edit symbol"],
+  ["代码，如 AAPL / 0700.HK / GC=F / ^HSI", "コード（例 AAPL / 0700.HK / GC=F / ^HSI）", "Symbol, e.g. AAPL / 0700.HK / GC=F / ^HSI"],
+  ["名称（可选）", "名前（任意）", "Name (optional)"],
+  ["涨跌幅阈值", "騰落率しきい値", "Move threshold"],
+  ["放量倍数", "出来高倍率", "Volume multiple"],
+  ["加入自选", "追加", "Add"],
+  ["自选列表", "ウォッチリスト", "Watchlist"],
+  ["代码", "コード", "Symbol"],
+  ["名称", "名前", "Name"],
+  ["价格", "価格", "Price"],
+  ["成交量 / 20 日均量", "出来高 / 20 日平均", "Volume / 20d avg"],
+  ["2 个月走势", "2 か月推移", "2-month trend"],
+  ["阈值", "しきい値", "Thresholds"],
+  ["状态", "状態", "Status"],
+  ["价格异动", "価格急変", "Price move"],
+  ["放量", "出来高急増", "Volume spike"],
+  ["自选列表是空的，在上面添加代码。", "ウォッチリストは空です。上でコードを追加してください。", "Your watchlist is empty — add a symbol above."],
+  ["从自选列表删除？", "ウォッチリストから削除しますか？", "Remove from watchlist?"],
+  ["检查中…", "チェック中…", "Checking…"],
+  ["运行中", "稼働中", "Running"],
+  ["已关闭", "オフ", "Off"],
+  ["最近提醒", "最近の通知", "Recent alerts"],
+  ["还没有提醒记录。", "通知履歴はまだありません。", "No alerts yet."],
+  ["已开启后台提醒：约 30 秒后做第一次检查", "バックグラウンド通知をオンにしました：約 30 秒後に初回チェックします", "Background alerts on — first check in about 30 seconds"],
+  ["已关闭后台提醒", "バックグラウンド通知をオフにしました", "Background alerts off"],
+  ["已发送测试通知。如果没看到，请在“系统设置 → 通知”里允许“脚本编辑器”的通知", "テスト通知を送信しました。表示されない場合は「システム設定 → 通知」で「スクリプトエディタ」の通知を許可してください", "Test notification sent. If you don't see it, allow notifications for “Script Editor” in System Settings → Notifications"],
+  ["后台正在检查，请稍后再看", "バックグラウンドでチェック中です。しばらくしてから確認してください", "A background check is running — look again shortly"],
+  ["请求体太大", "リクエストが大きすぎます", "Request body too large"],
+  ["没有新的异动", "新しい急変はありません", "No new alerts"],
+
+  // ---- 聪明钱
+  ["美股公司内部人（董事、高管、10% 股东）用自己的钱在公开市场买入的记录（Form 4 交易代码 P），以及知名基金每季度 13F 持仓的变化。",
+    "米国企業のインサイダー（取締役・役員・10% 株主）が自己資金で市場から買い付けた記録（Form 4 取引コード P）と、著名ファンドの四半期 13F 保有の変化。",
+    "Open-market purchases by US company insiders (directors, officers, 10% owners) with their own money (Form 4 code P), plus quarterly 13F holding changes of well-known funds."],
+  ["内部人买入 · Form 4", "インサイダー買い · Form 4", "Insider buys · Form 4"],
+  ["机构持仓 · 13F", "機関保有 · 13F", "Fund holdings · 13F"],
+  ["美股代码，如 AAPL / JPM / KO", "米国株コード（例 AAPL / JPM / KO）", "US ticker, e.g. AAPL / JPM / KO"],
+  ["扫描最近多少份 Form 4 申报", "スキャンする直近の Form 4 届出数", "How many recent Form 4 filings to scan"],
+  ["扫描份数", "スキャン件数", "Filings to scan"],
+  ["最近 80 份申报", "直近 80 件", "Last 80 filings"],
+  ["最近 150 份申报", "直近 150 件", "Last 150 filings"],
+  ["最近 300 份申报", "直近 300 件", "Last 300 filings"],
+  ["分析内部人买入", "インサイダー買いを分析", "Analyze insider buys"],
+  ["快速选择：", "クイック選択：", "Quick pick:"],
+  ["正在读取 SEC Form 4 申报（首次较慢，之后有本地缓存）…", "SEC Form 4 を読み込み中（初回は時間がかかり、以降はローカルキャッシュ）…", "Reading SEC Form 4 filings (slow the first time, cached locally afterwards)…"],
+  ["SEC EDGAR 需要联系邮箱：请先到“设置”页填写（只用于 SEC 要求的 User-Agent，只保存在本机）。", "SEC EDGAR には連絡先メールが必要です：先に「設定」で入力してください（SEC が求める User-Agent にのみ使用し、ローカルにだけ保存します）。", "SEC EDGAR needs a contact email: enter it on the Settings page first (used only in the User-Agent SEC requires; stored locally only)."],
+  ["请先在设置页填写联系邮箱", "先に設定ページで連絡先メールを入力してください", "Please enter a contact email on the Settings page first"],
+  ["前往设置", "設定へ移動", "Go to Settings"],
+  ["扫描申报", "スキャン届出", "Filings scanned"],
+  ["公开市场买入", "市場買付", "Open-market buys"],
+  ["90 天命中率", "90 日的中率", "90-day hit rate"],
+  ["90 天平均收益", "90 日平均リターン", "Avg 90-day return"],
+  ["买入日收盘价起算", "買付日の終値から計算", "From close on buy date"],
+  ["内部人命中率", "インサイダー的中率", "Insider hit rates"],
+  ["命中 = 买入后 90 天上涨", "的中 = 買付後 90 日で上昇", "Hit = up 90 days after buying"],
+  ["内部人", "インサイダー", "Insider"],
+  ["身份", "役職", "Role"],
+  ["买入次数", "買付回数", "Buys"],
+  ["买入金额", "買付金額", "Amount"],
+  ["30 天平均", "30 日平均", "Avg 30d"],
+  ["90 天平均", "90 日平均", "Avg 90d"],
+  ["相对 S&P 500", "S&P 500 比", "vs S&P 500"],
+  ["最近买入", "直近の買付", "Last buy"],
+  ["扫描范围内没有公开市场买入记录（内部人卖出、期权行权、授予等不计入）。", "スキャン範囲に市場買付の記録はありません（売却・オプション行使・付与などは対象外）。", "No open-market buys in the scanned range (sales, option exercises and grants are excluded)."],
+  ["买入明细", "買付明細", "Buy details"],
+  ["交易日", "取引日", "Trade date"],
+  ["申报日", "届出日", "Filed"],
+  ["股数", "株数", "Shares"],
+  ["均价", "平均単価", "Avg price"],
+  ["金额", "金額", "Value"],
+  ["30 天", "30 日", "30d"],
+  ["90 天超额", "90 日超過", "90d excess"],
+  ["原文", "原文", "Filing"],
+  ["说明：只统计 Form 4 非衍生品表中交易代码为 P（公开市场或私下买入）的记录，同一份申报内的多笔合并为一笔；收益按 Yahoo 日收盘价计算，未计股息；不足 30 / 90 天的显示“—”。",
+    "注記：Form 4 の非デリバティブ表で取引コード P（市場買付または相対買付）の記録のみを集計し、同一届出内の複数取引は 1 件にまとめています。リターンは Yahoo の日次終値で計算し、配当は含みません。30 / 90 日に満たないものは「—」と表示します。",
+    "Notes: only Form 4 non-derivative rows with transaction code P (open-market or private purchase) are counted; multiple rows in one filing are merged. Returns use Yahoo daily closes, excluding dividends; “—” means 30 / 90 days have not passed yet."],
+  ["仅供参考，不构成投资建议。", "参考情報であり、投資助言ではありません。", "For reference only; not investment advice."],
+  ["董事", "取締役", "Director"],
+  ["高管", "役員", "Officer"],
+  ["10% 股东", "10% 株主", "10% owner"],
+  ["跟踪的基金", "追跡ファンド", "Tracked funds"],
+  ["加载 13F", "13F を読み込む", "Load 13F"],
+  ["CIK，如 1067983", "CIK（例 1067983）", "CIK, e.g. 1067983"],
+  ["基金名称", "ファンド名", "Fund name"],
+  ["添加基金", "ファンドを追加", "Add fund"],
+  ["在 EDGAR 查 CIK ↗", "EDGAR で CIK を検索 ↗", "Look up CIK on EDGAR ↗"],
+  ["基金 ↔ 股票 持仓变化图", "ファンド ↔ 銘柄 保有変化グラフ", "Fund ↔ Stock holding-change graph"],
+  ["点击“加载 13F”。六边形是基金，圆点是股票；线的颜色表示本季度动作，线越粗金额越大", "「13F を読み込む」をクリック。六角形がファンド、円が銘柄です。線の色は今四半期の動き、線が太いほど金額が大きい", "Click “Load 13F”. Hexagons are funds, circles are stocks; line color shows this quarter's action, thicker lines mean larger value"],
+  ["新建仓", "新規", "New"],
+  ["加仓", "買い増し", "Added"],
+  ["减仓", "一部売却", "Reduced"],
+  ["清仓", "全売却", "Exited"],
+  ["持平", "横ばい", "Unchanged"],
+  ["显示每只基金前 12 大持仓 + 全部新建仓 / 清仓", "各ファンドの上位 12 銘柄 + 新規 / 全売却をすべて表示", "Shows each fund's top 12 holdings + all new / exited positions"],
+  ["显示持平", "横ばいも表示", "Show unchanged"],
+  ["正在读取 13F（首次较慢）…", "13F を読み込み中（初回は時間がかかります）…", "Reading 13F (slow the first time)…"],
+  ["基金概览", "ファンド概要", "Fund summary"],
+  ["点击行查看明细", "行をクリックで明細", "Click a row for details"],
+  ["基金", "ファンド", "Fund"],
+  ["报告季度", "報告四半期", "Quarter"],
+  ["持仓数", "銘柄数", "Positions"],
+  ["持仓市值", "保有時価", "Market value"],
+  ["动作", "動き", "Action"],
+  ["股票", "銘柄", "Stock"],
+  ["市值", "時価", "Value"],
+  ["仓位占比", "比率", "Weight"],
+  ["股数变化", "株数変化", "Share change"],
+  ["13F 只披露季末的美股多头持仓（不含空头、现金、多数海外资产），季度结束后约 45 天内申报，看到的已是旧仓位。期权持仓未计入。仅供参考，不构成投资建议。",
+    "13F は四半期末時点の米国株ロングのみを開示し（ショート・現金・多くの海外資産は含まない）、四半期末から約 45 日以内に届け出るため、表示されるのは過去のポジションです。オプションは含みません。参考情報であり、投資助言ではありません。",
+    "13F only discloses US long equity positions at quarter-end (no shorts, cash or most non-US assets) and is filed up to ~45 days later, so these are stale positions. Options are excluded. For reference only; not investment advice."],
+  ["不再跟踪这只基金？", "このファンドの追跡をやめますか？", "Stop tracking this fund?"],
+  ["删除基金", "ファンドを削除", "Remove fund"],
+
+  // ---- 商品持仓
+  ["CFTC 每周持仓报告（细分版，仅期货）中“管理资金”（对冲基金、CTA 等投机资金）的净多头，以及它在最近 3 年里所处的百分位。数据截至每周二，周五公布。",
+    "CFTC 建玉明細報告（Disaggregated・先物のみ）の「マネージドマネー」（ヘッジファンドや CTA などの投機筋）のネットロングと、直近 3 年における百分位。データは毎週火曜時点、金曜公表。",
+    "Net long of “Managed Money” (hedge funds, CTAs and other speculators) in the CFTC Commitments of Traders report (disaggregated, futures only), and its percentile over the last 3 years. Data as of each Tuesday, published Friday."],
+  ["正在读取 CFTC 持仓报告…", "CFTC 建玉報告を読み込み中…", "Reading CFTC COT report…"],
+  ["3 年百分位", "3 年百分位", "3-yr percentile"],
+  ["管理资金净持仓", "マネージドマネー純建玉", "Managed-money net"],
+  ["手", "枚", "contracts"],
+  ["多 / 空", "ロング / ショート", "Long / Short"],
+  ["占总持仓", "建玉全体比", "% of open interest"],
+  ["周变化", "週変化", "1-week change"],
+  ["· 4 周", "· 4 週", "· 4 wk"],
+  ["COT 指数", "COT 指数", "COT index"],
+  ["3 年最低 → 最高", "3 年最低 → 最高", "3-yr low → high"],
+  ["极高", "極めて高い", "Extreme high"],
+  ["偏高", "高め", "High"],
+  ["中间", "中位", "Middle"],
+  ["偏低", "低め", "Low"],
+  ["极低", "極めて低い", "Extreme low"],
+  ["百分位：当前净持仓高于最近 3 年中多少比例的周。COT 指数：（当前 − 3 年最低）÷（3 年最高 − 3 年最低）。极端值说明投机仓位拥挤，但不代表马上反转。仅供参考，不构成投资建议。",
+    "百分位：現在の純建玉が直近 3 年の何 % の週を上回っているか。COT 指数：（現在 − 3 年最低）÷（3 年最高 − 3 年最低）。極端な値は投機ポジションの偏りを示しますが、すぐに反転することを意味しません。参考情報であり、投資助言ではありません。",
+    "Percentile: share of weeks in the last 3 years with a lower net position than now. COT index: (current − 3-yr low) ÷ (3-yr high − 3-yr low). Extremes signal crowded speculative positioning, not an imminent reversal. For reference only; not investment advice."],
+
+  // ---- 宏观 / EIA
+  ["宏观 · 美债收益率曲线", "マクロ · 米国債利回り曲線", "Macro · US Treasury yield curve"],
+  ["现在", "現在", "Now"],
+  ["未填写 FRED Key：只显示 Yahoo 的美债收益率。到设置页填写免费的 FRED Key 后，会增加 2 年期、联邦基金利率、10 年通胀预期、高收益债利差、CPI 同比和失业率。",
+    "FRED キー未設定：Yahoo の米国債利回りのみ表示しています。設定ページで無料の FRED キーを入力すると、2 年債、FF 金利、10 年期待インフレ率、ハイイールド債スプレッド、CPI 前年比、失業率が追加されます。",
+    "No FRED key: showing Yahoo Treasury yields only. Add a free FRED key in Settings to also get the 2-year yield, fed funds rate, 10-year breakeven inflation, high-yield spread, CPI YoY and unemployment."],
+  ["美债 3 个月", "米国債 3 か月", "UST 3-month"],
+  ["美债 2 年", "米国債 2 年", "UST 2-year"],
+  ["美债 5 年", "米国債 5 年", "UST 5-year"],
+  ["美债 10 年", "米国債 10 年", "UST 10-year"],
+  ["美债 30 年", "米国債 30 年", "UST 30-year"],
+  ["联邦基金利率", "FF 金利", "Fed funds rate"],
+  ["10 年通胀预期", "10 年期待インフレ率", "10Y breakeven inflation"],
+  ["高收益债利差", "ハイイールド債スプレッド", "High-yield spread"],
+  ["CPI 同比", "CPI 前年比", "CPI YoY"],
+  ["失业率", "失業率", "Unemployment rate"],
+  ["美债利差 10Y−3M", "米国債スプレッド 10Y−3M", "UST spread 10Y−3M"],
+  ["10 年期收益率低于 3 个月期，收益率曲线倒挂", "10 年債利回りが 3 か月物を下回り、利回り曲線が逆転", "10-year yield is below the 3-month yield: the curve is inverted"],
+  ["收益率曲线较平", "利回り曲線はフラット気味", "The yield curve is fairly flat"],
+  ["收益率曲线正常向上倾斜", "利回り曲線は通常どおり右肩上がり", "The yield curve slopes upward normally"],
+  ["高收益债利差 · 1M", "ハイイールド債スプレッド · 1M", "High-yield spread · 1M"],
+  ["高收益债利差一个月内明显走阔，信用风险偏好下降", "ハイイールド債スプレッドが 1 か月で明確に拡大、信用リスク選好が低下", "High-yield spreads widened noticeably over the month; credit risk appetite fell"],
+  ["高收益债利差一个月内明显收窄，信用风险偏好上升", "ハイイールド債スプレッドが 1 か月で明確に縮小、信用リスク選好が上昇", "High-yield spreads tightened noticeably over the month; credit risk appetite rose"],
+  ["通胀同比较上月上升", "インフレ率（前年比）は前月から上昇", "YoY inflation rose from last month"],
+  ["通胀同比较上月回落", "インフレ率（前年比）は前月から低下", "YoY inflation eased from last month"],
+  ["通胀同比与上月持平", "インフレ率（前年比）は前月と横ばい", "YoY inflation was unchanged from last month"],
+  ["EIA 原油库存", "EIA 原油在庫", "EIA crude stocks"],
+  ["EIA 天然气库存", "EIA 天然ガス在庫", "EIA natgas storage"],
+  ["美国原油库存高于过去 5 年同期均值", "米国の原油在庫は過去 5 年同期平均を上回る", "US crude stocks are above the 5-year average for this week"],
+  ["美国原油库存低于过去 5 年同期均值", "米国の原油在庫は過去 5 年同期平均を下回る", "US crude stocks are below the 5-year average for this week"],
+  ["美国天然气库存高于过去 5 年同期均值", "米国の天然ガス在庫は過去 5 年同期平均を上回る", "US natgas storage is above the 5-year average for this week"],
+  ["美国天然气库存低于过去 5 年同期均值", "米国の天然ガス在庫は過去 5 年同期平均を下回る", "US natgas storage is below the 5-year average for this week"],
+  ["EIA 库存周报", "EIA 在庫週報", "EIA Weekly Inventories"],
+  ["美国能源信息署每周公布的商业库存（石油周三、天然气周四）。和过去 5 年同一周的平均水平比较：库存明显高于往年同期通常说明供应偏宽松，低于则偏紧。",
+    "米エネルギー情報局が毎週公表する商業在庫（石油は水曜、天然ガスは木曜）。過去 5 年の同じ週の平均と比較し、例年より明らかに多ければ需給は緩め、少なければ引き締まり気味とされます。",
+    "Commercial inventories published weekly by the US Energy Information Administration (oil on Wednesday, natgas on Thursday). Compared with the average for the same week over the past 5 years: clearly above usually means looser supply, below means tighter."],
+  ["正在读取 EIA 库存周报…", "EIA 在庫週報を読み込み中…", "Reading EIA weekly inventories…"],
+  ["原油库存（不含 SPR）", "原油在庫（SPR 除く）", "Crude stocks (ex-SPR)"],
+  ["汽油库存", "ガソリン在庫", "Gasoline stocks"],
+  ["馏分油库存", "留出油在庫", "Distillate stocks"],
+  ["库欣原油库存", "クッシング原油在庫", "Cushing crude stocks"],
+  ["天然气库存（48 州）", "天然ガス在庫（48 州）", "Natgas storage (Lower 48)"],
+  ["高于往年同期", "例年同期より多い", "Above seasonal norm"],
+  ["低于往年同期", "例年同期より少ない", "Below seasonal norm"],
+  ["接近往年同期", "例年同期並み", "Near seasonal norm"],
+  ["同比", "前年比", "YoY"],
+  ["5 年同期均值", "5 年同期平均", "5-yr same-week avg"],
+  ["相对 5 年均值", "5 年平均比", "vs 5-yr avg"],
+  ["过去 5 年同一周的最低 → 最高", "過去 5 年の同じ週の最低 → 最高", "Same-week low → high over the past 5 years"],
+  ["5 年同期区间", "5 年同期レンジ", "5-yr same-week range"],
+  ["近 1 年", "直近 1 年", "Last 12 months"],
+  ["公共 DEMO_KEY", "公開 DEMO_KEY", "Public DEMO_KEY"],
+  ["未填写 EIA Key，使用公共演示 Key（每小时约 10 次）；数据缓存 12 小时", "EIA キー未設定のため公開デモキー（1 時間あたり約 10 回）を使用中。データは 12 時間キャッシュします", "No EIA key set: using the public demo key (~10 requests/hour); data is cached for 12 hours"],
+  ["EIA 请求过于频繁（公共 DEMO_KEY 每小时约 10 次），请稍后再试，或在设置里填写自己的 EIA Key", "EIA へのリクエストが多すぎます（公開 DEMO_KEY は 1 時間あたり約 10 回）。しばらくして再試行するか、設定で自分の EIA キーを入力してください", "Too many EIA requests (the public DEMO_KEY allows ~10/hour). Try again later or enter your own EIA key in Settings"],
+  // ---- 新闻影响
+  ["新闻影响", "ニュース影響", "News Impact"],
+  ["新闻影响（快捷键 5）", "ニュース影響（ショートカット 5）", "News Impact (shortcut 5)"],
+  ["设置（快捷键 6）", "設定（ショートカット 6）", "Settings (shortcut 6)"],
+  ["◆ 快捷键 1–6 切换页面", "◆ ショートカット 1–6 でページ切替", "◆ Press 1–6 to switch pages"],
+  ["抓取最近 72 小时与原油、天然气、黄金、白银、铜相关的公开新闻标题，用关键词规则识别其中的驱动因素（如 OPEC 减产、航道风险、美联储鹰鸽、美元、库存、中国政策、天气、矿山停产），并给出这类因素通常的影响方向。",
+    "直近 72 時間の原油・天然ガス・金・銀・銅に関する公開ニュースの見出しを集め、キーワードルールで材料（OPEC 減産、航路リスク、FRB のタカ派 / ハト派、ドル、在庫、中国の政策、天候、鉱山の操業停止など）を識別し、その種の材料が通常どちらに効くかを示します。",
+    "Collects public headlines from the last 72 hours about crude, natgas, gold, silver and copper, identifies the drivers in them with keyword rules (OPEC cuts, shipping-lane risk, Fed hawkish/dovish, the dollar, inventories, China policy, weather, mine outages…) and shows the direction such drivers usually push prices."],
+  ["全部", "すべて", "All"],
+  ["重大新闻提醒", "重要ニュース通知", "Major-news alerts"],
+  ["后台每 15 分钟检查一次：通常影响强（▲▲ / ▼▼）的驱动因素、标题直接提到所选商品、并且 6 小时内至少有设定数量的不同媒体报道时，推送 macOS 通知。同一“因素 + 商品”12 小时内只提醒一次。和自选监控的异动提醒分开开关；提示音和语言沿用那边的设置。",
+    "バックグラウンドで 15 分ごとにチェックします。通常の影響が強い材料（▲▲ / ▼▼）で、見出しが選択した商品に直接触れ、6 時間以内に設定数以上の異なる媒体が報じた場合に macOS 通知を送ります。同じ「材料 + 商品」は 12 時間に 1 回だけ通知します。ウォッチリストの急変アラートとは別にオン / オフでき、通知音と言語はそちらの設定を使います。",
+    "Checked in the background every 15 minutes: a macOS notification is sent when a strong driver (▲▲ / ▼▼) names a selected commodity directly and at least the set number of different outlets report it within 6 hours. Each driver + commodity pair notifies at most once per 12 hours. Switched on separately from watchlist alerts; sound and language follow the watchlist settings."],
+  ["开启重大新闻提醒", "重要ニュース通知を有効化", "Enable major-news alerts"],
+  ["至少", "最低", "At least"],
+  ["1 家媒体", "1 媒体", "1 outlet"],
+  ["2 家媒体", "2 媒体", "2 outlets"],
+  ["3 家媒体", "3 媒体", "3 outlets"],
+  ["已开启重大新闻提醒：约 30 秒后检查一次（包括最近 3 小时的新闻）", "重要ニュース通知をオンにしました：約 30 秒後にチェックします（直近 3 時間のニュースを含む）", "Major-news alerts on — first check in about 30 seconds (includes the last 3 hours of news)"],
+  ["已关闭重大新闻提醒", "重要ニュース通知をオフにしました", "Major-news alerts off"],
+  ["没有新的重大新闻", "新しい重要ニュースはありません", "No new major news"],
+  ["新闻倾向事后验证", "ニュース傾向の事後検証", "News tilt: after-the-fact check"],
+  ["每天保留首次新闻倾向，以信号日期（UTC）之后首个交易日收盘为基准，统计后续 1 / 5 个交易日的方向命中率。同一基准交易日只计一次，当天日线不计入；上涨占比仅供对照，小样本不能说明预测能力。",
+    "毎日最初のニュース傾向を保存し、シグナルの日付（UTC）より後の最初の取引日の終値を基準に、続く 1 / 5 取引日の方向的中率を集計します。同じ基準日は一度だけ数え、当日の日足は含めません。上昇の割合は比較用であり、少数の標本では予測力を判断できません。",
+    "The first news tilt each day is kept. Returns start at the first trading-day close after the signal's UTC date and cover the following 1 / 5 trading days. Each entry day is counted once; today's daily bar is excluded. The up share is a reference only, and small samples cannot establish predictive value."],
+  ["记录天数", "記録日数", "Days recorded"],
+  ["偏多 / 偏空信号", "強気 / 弱気シグナル", "Bull / bear signals"],
+  ["次日方向命中", "翌日の方向的中", "Next-day hit"],
+  ["5 日方向命中", "5 日後の方向的中", "5-day hit"],
+  ["基准：次日上涨占比", "基準：翌日上昇の割合", "Base: next-day up share"],
+  ["基准：5 日上涨占比", "基準：5 日後上昇の割合", "Base: 5-day up share"],
+  ["商品", "商品", "Commodity"],
+  ["从今天开始记录：服务每小时保存一次新闻倾向（每天保留一份），过几个交易日这里就会出现统计。", "今日から記録を開始します。サービスが 1 時間ごとにニュース傾向を保存し（1 日 1 件を保持）、数営業日後にここに統計が表示されます。", "Recording starts today: the service saves the news tilt hourly (keeping one per day); stats will appear here after a few trading days."],
+  ["新闻标题", "ニュース見出し", "Headlines"],
+  ["原油", "原油", "Crude oil"],
+  ["只看有驱动因素的", "材料ありのみ表示", "Only with drivers"],
+  ["判断规则", "判定ルール", "Rules"],
+  ["每条规则的关键词和通常的传导逻辑", "各ルールのキーワードと通常の波及経路", "Keywords and the usual transmission for each rule"],
+  ["驱动因素", "材料", "Driver"],
+  ["通常影响", "通常の影響", "Usual effect"],
+  ["传导逻辑", "波及経路", "Why"],
+  ["说明：这是基于关键词的规则归纳，只表示“这类消息通常会怎样影响价格”，不是价格预测。实际走势还取决于预期是否已被消化、消息真假和力度；同一事件常被多家媒体重复报道（汇总时同一因素对同一商品最多计 4 条），标题提到的商品按全权重计算，没提到的按一半计算，越新的消息权重越高（半衰期 24 小时）。标题保留英文原文。仅供参考，不构成投资建议。",
+    "注記：キーワードに基づくルールの要約で、「この種のニュースが通常どう価格に効くか」を示すだけで、価格予測ではありません。実際の値動きは、織り込み済みかどうか、情報の真偽や強さにも左右されます。同じ出来事は複数の媒体で重複して報じられるため、集計では同じ材料・同じ商品につき最大 4 件まで数えます。見出しで言及された商品は全ウェイト、言及のない商品は半分で計算し、新しいニュースほど重みが大きくなります（半減期 24 時間）。見出しは英語の原文のままです。参考情報であり、投資助言ではありません。",
+    "Notes: this summarises keyword rules — it only says how this kind of news usually moves prices and is not a price forecast. Actual moves also depend on what is already priced in and on the news being true and material. The same event is often reported by many outlets, so each driver counts at most 4 headlines per commodity. Commodities named in a headline get full weight, others half, and newer news weighs more (24-hour half-life). Headlines are shown in their original English. For reference only; not investment advice."],
+  ["正在抓取新闻…", "ニュースを取得中…", "Fetching news…"],
+  ["新闻偏多", "ニュースは強気寄り", "News leans bullish"],
+  ["新闻偏空", "ニュースは弱気寄り", "News leans bearish"],
+  ["多空交织", "強弱材料が混在", "Mixed signals"],
+  ["无明显倾向", "目立った傾向なし", "No clear tilt"],
+  ["左：偏空因素合计 · 右：偏多因素合计", "左：弱気材料の合計 · 右：強気材料の合計", "Left: bearish drivers · Right: bullish drivers"],
+  ["倾向分", "傾向スコア", "Tilt"],
+  ["价格 1D", "価格 1D", "Price 1D"],
+  ["新闻偏多，但价格一周下跌", "ニュースは強気寄りだが、価格は 1 週間で下落", "News leans bullish, but price fell over the week"],
+  ["新闻偏空，但价格一周上涨", "ニュースは弱気寄りだが、価格は 1 週間で上昇", "News leans bearish, but price rose over the week"],
+  ["间接影响（标题没有直接提到）", "間接的な影響（見出しで直接言及なし）", "Indirect effect (not named in the headline)"],
+  ["行情报道", "相場報道", "Price report"],
+  ["没有符合条件的新闻。", "条件に合うニュースはありません。", "No matching headlines."],
+  ["供应中断风险", "供給途絶リスク", "Supply disruption risk"],
+  ["产油区或航道受威胁，原油供应风险溢价上升；中东局势紧张也常带动避险买盘", "産油地域や航路が脅かされ、原油の供給リスクプレミアムが上昇。中東情勢の緊迫は安全資産買いも誘いやすい", "Threats to producing regions or shipping lanes raise oil's supply-risk premium; Middle East tension also tends to lift safe-haven buying"],
+  ["地缘冲突升级", "地政学的緊張の激化", "Geopolitical escalation"],
+  ["冲突升级推高避险需求，若涉及产油区还会推高原油风险溢价", "紛争の激化で安全資産需要が高まり、産油地域が絡めば原油のリスクプレミアムも上昇", "Escalation lifts safe-haven demand and, if oil regions are involved, oil's risk premium"],
+  ["局势缓和 / 停火", "緊張緩和 / 停戦", "De-escalation / ceasefire"],
+  ["冲突缓和会压低原油风险溢价，避险资金也可能流出黄金", "緊張緩和で原油のリスクプレミアムが縮小し、安全資産マネーが金から流出する可能性", "Easing conflict shrinks oil's risk premium, and safe-haven money may leave gold"],
+  ["OPEC+ 减产 / 延长减产", "OPEC+ 減産 / 減産延長", "OPEC+ cut / extension"],
+  ["主动减少供应，通常支撑油价", "意図的な供給削減で、通常は原油価格の支え", "Deliberate supply cuts usually support oil prices"],
+  ["OPEC+ 增产", "OPEC+ 増産", "OPEC+ output increase"],
+  ["供应增加，通常压制油价", "供給増で、通常は原油価格の重し", "More supply usually weighs on oil prices"],
+  ["能源制裁收紧", "エネルギー制裁の強化", "Tighter energy sanctions"],
+  ["受制裁国的出口受限，可交易的供应减少", "制裁対象国の輸出が制限され、市場で取引できる供給が減る", "Sanctioned exporters ship less, shrinking tradable supply"],
+  ["制裁放松", "制裁緩和", "Sanctions relief"],
+  ["更多受制裁国的原油可以回到市场", "制裁対象国の原油がより多く市場に戻る", "More sanctioned crude can return to the market"],
+  ["库存增加", "在庫増加", "Inventory build"],
+  ["库存增加说明供应相对需求偏多，通常压制价格（只作用于标题提到的品种）", "在庫増は需要に対して供給が多いことを示し、通常は価格の重し（見出しで言及された品目のみ）", "A build means supply is ahead of demand and usually weighs on price (only for the commodity named)"],
+  ["库存下降", "在庫減少", "Inventory draw"],
+  ["库存下降说明需求相对供应偏强，通常支撑价格（只作用于标题提到的品种）", "在庫減は供給に対して需要が強いことを示し、通常は価格の支え（見出しで言及された品目のみ）", "A draw means demand is ahead of supply and usually supports price (only for the commodity named)"],
+  ["美联储偏鹰 / 加息预期", "FRB タカ派 / 利上げ観測", "Hawkish Fed / hike expectations"],
+  ["实际利率上升会提高持有黄金等无息资产的机会成本，美元也常随之走强", "実質金利の上昇で金など利息を生まない資産の保有コストが上がり、ドルも上昇しやすい", "Higher real rates raise the cost of holding non-yielding assets like gold, and the dollar often firms"],
+  ["美联储偏鸽 / 降息预期", "FRB ハト派 / 利下げ観測", "Dovish Fed / cut expectations"],
+  ["降息预期压低实际利率和美元，通常利好黄金白银，也改善工业金属需求预期", "利下げ観測で実質金利とドルが下がり、通常は金・銀に追い風で、工業用金属の需要見通しも改善", "Cut expectations lower real rates and the dollar, usually helping gold and silver and improving industrial-metal demand"],
+  ["美联储会议 / 官方公告", "FOMC / 公式発表", "Fed meeting / official release"],
+  ["官方利率决议或会议纪要，方向取决于具体内容，需看原文", "金利決定や議事要旨など。方向は内容次第なので原文を確認", "A rate decision or minutes; direction depends on the content — read the original"],
+  ["通胀偏热", "インフレ加速", "Hot inflation"],
+  ["黄金长期抗通胀，但通胀偏热会推高加息预期、短期压制金价，方向不确定", "金は長期的にはインフレヘッジだが、インフレ加速は利上げ観測を高め短期的には重しになり得るため、方向は不確定", "Gold hedges inflation long-term, but hot inflation raises hike expectations and can weigh short-term — direction unclear"],
+  ["美元走强", "ドル高", "Stronger dollar"],
+  ["大宗商品以美元计价，美元走强通常压制以美元计的价格", "商品はドル建てのため、ドル高は通常ドル建て価格の重し", "Commodities are priced in dollars, so a stronger dollar usually weighs on prices"],
+  ["美元走弱", "ドル安", "Weaker dollar"],
+  ["美元走弱通常推高以美元计价的大宗商品", "ドル安は通常ドル建ての商品価格を押し上げる", "A weaker dollar usually lifts dollar-priced commodities"],
+  ["中国刺激政策", "中国の景気刺激策", "China stimulus"],
+  ["中国是铜和原油最大的消费国，刺激政策改善需求预期", "中国は銅と原油の最大消費国で、刺激策は需要見通しを改善させる", "China is the largest consumer of copper and oil; stimulus improves the demand outlook"],
+  ["中国需求偏弱", "中国の需要減速", "Weak Chinese demand"],
+  ["中国需求走弱会拖累铜和原油的消费预期", "中国の需要減速は銅と原油の消費見通しを押し下げる", "Weaker Chinese demand drags on copper and oil consumption expectations"],
+  ["关税 / 贸易摩擦", "関税 / 貿易摩擦", "Tariffs / trade friction"],
+  ["贸易摩擦打压全球增长和工业品需求预期，同时增加避险需求", "貿易摩擦は世界の成長と工業品需要の見通しを悪化させ、安全資産需要を高める", "Trade friction hurts global growth and industrial demand expectations while lifting safe-haven demand"],
+  ["衰退 / 需求担忧", "景気後退 / 需要懸念", "Recession / demand worries"],
+  ["经济放缓压低能源和工业金属需求，资金可能转向黄金避险", "景気減速でエネルギーと工業用金属の需要が落ち、資金が金に避難する可能性", "A slowdown cuts energy and industrial-metal demand; money may shift to gold"],
+  ["飓风 / 墨西哥湾天气", "ハリケーン / メキシコ湾の天候", "Hurricane / Gulf weather"],
+  ["墨西哥湾油气平台可能停产，短期供应受影响", "メキシコ湾の石油・ガス設備が停止する可能性があり、短期的に供給が影響を受ける", "Gulf of Mexico platforms may shut, disrupting supply short-term"],
+  ["寒潮 / 热浪（用气需求增加）", "寒波 / 熱波（ガス需要増）", "Cold snap / heat wave (more gas demand)"],
+  ["取暖或制冷需求上升，天然气消耗增加", "暖房・冷房需要が増え、天然ガス消費が増える", "Heating or cooling demand rises, burning more gas"],
+  ["天气温和（用气需求减少）", "温暖な天候（ガス需要減）", "Mild weather (less gas demand)"],
+  ["取暖需求偏弱，天然气消耗减少", "暖房需要が弱く、天然ガス消費が減る", "Weak heating demand means less gas burned"],
+  ["LNG 出口变化", "LNG 輸出の変化", "LNG export change"],
+  ["美国 LNG 出口受阻会让国内天然气过剩（偏空 Henry Hub），出口增加则相反，需看原文", "米国の LNG 輸出が止まると国内のガスが余り（Henry Hub には弱気）、輸出増なら逆。原文を確認", "A US LNG export outage leaves more gas at home (bearish Henry Hub); higher exports do the opposite — read the original"],
+  ["矿山 / 冶炼供应中断", "鉱山 / 製錬の供給途絶", "Mine / smelter disruption"],
+  ["铜精矿或冶炼供应减少，通常支撑铜价", "銅精鉱や製錬の供給が減り、通常は銅価格の支え", "Less concentrate or smelter output usually supports copper"],
+  ["央行购金", "中央銀行の金購入", "Central-bank gold buying"],
+  ["官方持续买入是金价的重要支撑", "公的部門の継続的な購入は金価格の重要な支え", "Steady official buying is a major support for gold"],
+  ["黄金 ETF 资金流", "金 ETF の資金フロー", "Gold ETF flows"],
+  ["ETF 流入表示投资需求增加、流出则相反，需看原文方向", "ETF への流入は投資需要の増加、流出はその逆。原文で方向を確認", "ETF inflows mean more investment demand, outflows the opposite — check the original"],
+  ["美国战略储备释放", "米戦略石油備蓄の放出", "US SPR release"],
+  ["政府释放储备增加短期供应", "政府の備蓄放出で短期的に供給が増える", "Government releases add short-term supply"],
+  ["美国战略储备回补", "米戦略石油備蓄の買い戻し", "US SPR refill"],
+  ["政府采购增加需求", "政府の買い付けで需要が増える", "Government purchases add demand"],
+  // ---- AI / 科技股新闻
+  ["大宗商品", "商品", "Commodities"],
+  ["AI · 科技股", "AI · テック株", "AI · Tech stocks"],
+  ["话题标签", "トピックタグ", "Topic tags"],
+  ["点击标签筛选", "タグをクリックで絞り込み", "Click a tag to filter"],
+  ["科技新闻", "テックニュース", "Tech headlines"],
+  ["正在抓取科技新闻…", "テックニュースを取得中…", "Fetching tech news…"],
+  ["详情", "詳細", "Details"],
+  ["未上市", "非上場", "Private"],
+  ["偏正面", "ポジティブ寄り", "Positive"],
+  ["· 偏负面", "· ネガティブ寄り", "· Negative"],
+  ["清除筛选", "絞り込み解除", "Clear filter"],
+  ["说明：按关键词给每条标题打“公司”和“话题”两类标签。话题后面的 + / − 是这类消息对被点名公司通常的含义（如上调指引偏正面、出口管制或监管调查偏负面），“行情”类标签只描述股价表现、不计入倾向；公司卡片的倾向分按时间衰减（半衰期 24 小时）加总。一条标题同时讲几件事时，所有被点名的公司都会带上全部标签。OpenAI、Anthropic、xAI 未上市，只做标签。标题保留英文原文。仅供参考，不构成投资建议。",
+    "注記：キーワードで各見出しに「企業」と「トピック」の 2 種類のタグを付けます。トピックの + / − は、その種のニュースが名指しされた企業にとって通常どういう意味を持つか（ガイダンス引き上げはポジティブ、輸出規制や規制当局の調査はネガティブなど）を示します。「相場」タグは株価の動きを表すだけで、傾向には含めません。企業カードの傾向スコアは時間減衰（半減期 24 時間）で合計します。1 本の見出しが複数の話題を扱う場合、名指しされた全企業にすべてのタグが付きます。OpenAI、Anthropic、xAI は非上場のためタグのみです。見出しは英語の原文のままです。参考情報であり、投資助言ではありません。",
+    "Notes: each headline gets two kinds of keyword tags — companies and topics. The + / − after a topic is what that kind of news usually means for the companies named (raised guidance is positive; export controls or regulatory probes are negative). 'Move' tags only describe price action and are not counted in the tilt. Company tilt scores are summed with time decay (24-hour half-life). When one headline covers several stories, every company named gets all its tags. OpenAI, Anthropic and xAI are private and only tagged. Headlines are shown in their original English. For reference only; not investment advice."],
+  ["AI 芯片 / 算力", "AI 半導体 / 計算資源", "AI chips / compute"],
+  ["AI 资本开支", "AI 設備投資", "AI capex"],
+  ["AI 模型 / 产品发布", "AI モデル / 製品発表", "AI model / product launch"],
+  ["AI 用电 / 能源", "AI の電力 / エネルギー", "AI power / energy"],
+  ["财报 / 业绩", "決算 / 業績", "Earnings"],
+  ["业绩超预期 / 上调指引", "予想超え / ガイダンス引き上げ", "Beat / raised guidance"],
+  ["业绩不及预期 / 下调指引", "予想未達 / ガイダンス引き下げ", "Miss / cut guidance"],
+  ["出口管制 / 中美科技", "輸出規制 / 米中テック", "Export controls / US–China tech"],
+  ["监管 / 反垄断 / 诉讼", "規制 / 独禁法 / 訴訟", "Regulation / antitrust / lawsuits"],
+  ["并购 / 融资 / IPO", "M&A / 資金調達 / IPO", "M&A / funding / IPO"],
+  ["合作 / 大单", "提携 / 大型受注", "Partnership / big order"],
+  ["供应链 / 产能", "サプライチェーン / 生産能力", "Supply chain / capacity"],
+  ["分析师上调", "アナリスト格上げ", "Analyst upgrade"],
+  ["分析师下调", "アナリスト格下げ", "Analyst downgrade"],
+  ["估值 / 泡沫担忧", "バリュエーション / バブル懸念", "Valuation / bubble worries"],
+  ["裁员 / 管理层变动", "人員削減 / 経営陣交代", "Layoffs / leadership change"],
+  ["故障 / 安全事件", "障害 / セキュリティ事故", "Outage / security incident"],
+  ["行情：大涨", "相場：急騰", "Move: big rally"],
+  ["行情：大跌", "相場：急落", "Move: big drop"],
+  // ---- 设置
+  ["API Key 和邮箱只保存在本机的 data/config.json 里，页面不会回显已保存的内容。", "API キーとメールはこの PC の data/config.json にのみ保存され、保存済みの内容は画面に再表示されません。", "API keys and the email are stored only in data/config.json on this machine; saved values are never shown back on the page."],
+  ["SEC EDGAR 联系邮箱", "SEC EDGAR 連絡先メール", "SEC EDGAR contact email"],
+  ["聪明钱需要", "スマートマネーで必要", "Needed for Smart Money"],
+  ["留空则不修改", "空欄なら変更しません", "Leave blank to keep"],
+  ["SEC 要求每个请求的 User-Agent 里带联系邮箱，不需要注册。只用于向 SEC 表明身份。", "SEC は各リクエストの User-Agent に連絡先メールを含めるよう求めています（登録不要）。SEC への身元表示にのみ使います。", "SEC requires a contact email in every request's User-Agent (no sign-up). It is used only to identify you to SEC."],
+  ["可选", "任意", "Optional"],
+  ["可选 · v2", "任意 · v2", "Optional · v2"],
+  ["美联储经济数据（利率、通胀、就业等）。免费注册：", "FRED 経済データ（金利・インフレ・雇用など）。無料登録：", "Federal Reserve economic data (rates, inflation, jobs…). Free sign-up:"],
+  ["美国能源信息署：原油 / 天然气库存周报。免费注册：", "米エネルギー情報局：原油 / 天然ガス在庫週報。無料登録：", "US Energy Information Administration: weekly crude / natgas inventories. Free sign-up:"],
+  ["实时报价和公司新闻（免费档）。注册：", "リアルタイム気配と企業ニュース（無料枠）。登録：", "Real-time quotes and company news (free tier). Sign up:"],
+  ["保存设置", "設定を保存", "Save settings"],
+  ["数据源说明", "データソース", "Data sources"],
+  ["行情", "相場", "Quotes"],
+  ["Yahoo Finance chart 接口（非官方，约 15 分钟延迟）", "Yahoo Finance chart エンドポイント（非公式・約 15 分遅延）", "Yahoo Finance chart endpoint (unofficial, ~15 min delay)"],
+  ["CNN（非官方）；不可用时用本地合成指数", "CNN（非公式）；使えない場合はローカル合成指数", "CNN (unofficial); falls back to a local composite"],
+  ["内部人买入", "インサイダー買い", "Insider buys"],
+  ["SEC Form 4（申报后约 2 个工作日内）", "SEC Form 4（取引後 約 2 営業日以内に届出）", "SEC Form 4 (filed within ~2 business days)"],
+  ["机构持仓", "機関保有", "Fund holdings"],
+  ["SEC 13F（季度，季末后约 45 天）", "SEC 13F（四半期、期末から約 45 日後）", "SEC 13F (quarterly, ~45 days after quarter-end)"],
+  ["CFTC COT（每周二数据，周五公布）", "CFTC COT（火曜時点データ、金曜公表）", "CFTC COT (Tuesday data, published Friday)"],
+  ["全部为免费公开数据，可能延迟、缺失或被限流。仅供个人研究，不构成投资建议。", "すべて無料の公開データで、遅延・欠損・レート制限の可能性があります。個人の調査用であり、投資助言ではありません。", "All free public data; it may be delayed, missing or rate-limited. For personal research only; not investment advice."],
+  ["约 15 分钟延迟", "約 15 分遅延", "~15 min delay"],
+  ["限流冷却", "レート制限中", "Rate-limited"],
+  ["不可用 · 用合成指数", "利用不可 · 合成指数", "Unavailable · composite"],
+  ["非官方", "非公式", "Unofficial"],
+  ["待检测", "未確認", "Not checked yet"],
+  ["已配置邮箱", "メール設定済み", "Email set"],
+  ["需要邮箱", "メールが必要", "Needs email"],
+  ["每周", "毎週", "Weekly"],
+
+  // ---- HUD / 跑马灯
+  ["◆ 行情约延迟 15 分钟 · 不构成投资建议", "◆ 相場は約 15 分遅延 · 投資助言ではありません", "◆ Quotes ~15 min delayed · not investment advice"],
+
+  // ---- 服务端错误信息
+  ["SEC EDGAR 需要联系邮箱：请在“设置”页填写（只用于 SEC 要求的 User-Agent，只保存在本机）", "SEC EDGAR には連絡先メールが必要です：「設定」で入力してください（SEC が求める User-Agent にのみ使用し、ローカルにだけ保存します）", "SEC EDGAR needs a contact email: enter it on the Settings page (used only in the User-Agent SEC requires; stored locally only)"],
+  ["SEC 拒绝访问（HTTP 403）：请确认“设置”里的联系邮箱有效，或稍后再试", "SEC がアクセスを拒否しました（HTTP 403）：「設定」の連絡先メールが有効か確認するか、しばらくして再試行してください", "SEC refused access (HTTP 403): check that the contact email in Settings is valid, or try again later"],
+  ["邮箱格式不正确", "メールの形式が正しくありません", "Invalid email format"],
+  ["请输入代码", "コードを入力してください", "Please enter a symbol"],
+  ["请输入 CIK", "CIK を入力してください", "Please enter a CIK"],
+  ["CIK 必须是数字", "CIK は数字で入力してください", "CIK must be a number"],
+  ["Yahoo 限流冷却中，请稍后再试", "Yahoo のレート制限中です。しばらくして再試行してください", "Yahoo is rate-limiting; please try again later"],
+  ["没有找到 13F-HR 申报", "13F-HR の届出が見つかりません", "No 13F-HR filings found"],
+  ["历史数据不足，无法计算合成情绪指数", "履歴データが不足しているため合成指数を計算できません", "Not enough history to compute the composite index"],
+];
+
+// 带变量的文案：[正则, 日本語模板, English 模板]；$1.. 会再经过 tr/gl 翻译
+const PATTERNS = [
+  [/^(Yahoo|CNN F&G|SEC EDGAR|CFTC COT) · (.+)$/, "$1 · $2", "$1 · $2"],
+  [/^双击项目文件夹里的“Enable-Autostart-(.+)”$/, "プロジェクトフォルダの「Enable-Autostart-$1」をダブルクリック", "Double-click “Enable-Autostart-$1” in the project folder"],
+  [/^从 (\S+) 开始记录 · (\d+) 天$/, "$1 から記録 · $2 日", "Recording since $1 · $2 days"],
+  [/^休市未更新，跳过 (\d+) 个品种$/, "休場中で更新なし：$1 銘柄をスキップ", "Market closed, no new trades: skipped $1 symbols"],
+  [/^更新于 (.+)$/, "更新 $1", "Updated $1"],
+  [/^新闻数据较旧：最后成功更新于 (.+)，新闻源可能暂时无法访问$/, "ニュースデータが古くなっています：最終更新 $1。ニュースソースに一時的にアクセスできない可能性があります", "News data is stale: last successful update $1 — sources may be temporarily unreachable"],
+  [/^EIA 暂时不可用（上次请求失败，稍后自动重试）$/, "EIA は一時的に利用できません（前回のリクエストが失敗したため、しばらくして自動で再試行します）", "EIA temporarily unavailable (last request failed; will retry automatically)"],
+  [/^(原油|天然气|黄金|白银|铜) ([▲▼±]+)$/, "$1 $2", "$1 $2"],
+  [/^发现 (\d+) 条重大新闻，已推送通知$/, "重要ニュース $1 件を検知し、通知しました", "Found $1 major news items and sent notifications"],
+  [/^相关新闻 (\d+) 条$/, "関連ニュース $1 件", "$1 related headlines"],
+  [/^部分新闻源暂时不可用：(.+)$/, "一部のニュースソースが一時的に利用できません：$1", "Some news sources are temporarily unavailable: $1"],
+  [/^数据截至 (\S+)$/, "データ時点 $1", "Data as of $1"],
+  [/^EIA 没有数据: (.+)$/, "EIA のデータがありません: $1", "No EIA data: $1"],
+  [/^EIA 返回格式异常: (.+)$/, "EIA の応答形式が想定外です: $1", "Unexpected EIA response: $1"],
+  [/^数据不足: (.+)$/, "データ不足: $1", "Not enough data: $1"],
+  [/^报告日 (\S+)$/, "報告日 $1", "Report date $1"],
+  [/^(\d+) 分钟前$/, "$1 分前", "$1 min ago"],
+  [/^(\d+) 小时前$/, "$1 時間前", "$1 h ago"],
+  [/^(\d+) 天前$/, "$1 日前", "$1 d ago"],
+  [/^上次检查 (.+)$/, "前回チェック $1", "Last check $1"],
+  [/^下次约 (.+)$/, "次回 約 $1", "Next ~$1"],
+  [/^部分失败：(.+)$/, "一部失敗：$1", "Partly failed: $1"],
+  [/^发现 (\d+) 条新异动，已推送通知$/, "新しい急変 $1 件を検知し、通知しました", "Found $1 new alerts and sent notifications"],
+  [/^部分数据暂时不可用：(.+)$/, "一部データが一時的に利用できません：$1", "Some data is temporarily unavailable: $1"],
+  [/^部分基金获取失败：(.+)$/, "一部ファンドの取得に失敗：$1", "Some funds failed: $1"],
+  [/^部分品种获取失败：(.+)$/, "一部銘柄の取得に失敗：$1", "Some markets failed: $1"],
+  [/^(\d+) 位内部人$/, "インサイダー $1 名", "$1 insiders"],
+  [/^(\d+) 笔已满 90 天$/, "90 日経過 $1 件", "$1 with 90 days elapsed"],
+  [/^有 (\d+) 份申报解析失败已跳过。$/, "$1 件の届出は解析に失敗したためスキップしました。", "$1 filings failed to parse and were skipped."],
+  [/^(.+) · 各基金动作$/, "$1 · 各ファンドの動き", "$1 · actions by fund"],
+  [/^3 年区间 · (\d+) 周$/, "3 年レンジ · $1 週", "3-yr range · $1 wks"],
+  [/^◆ SYSTEM READY · 自选 (\d+) 个品种$/, "◆ SYSTEM READY · ウォッチ $1 銘柄", "◆ SYSTEM READY · watching $1 symbols"],
+  [/^◆ (.+) (价格异动|放量|RSI 超买|RSI 超卖|52 周新高|52 周新低)$/, "◆ $1 $2", "◆ $1 $2"],
+  [/^找不到代码: (.+)$/, "コードが見つかりません: $1", "Symbol not found: $1"],
+  [/^代码格式不正确: (.+)$/, "コードの形式が正しくありません: $1", "Invalid symbol: $1"],
+  [/^没有行情数据: (.+)$/, "相場データがありません: $1", "No quote data: $1"],
+  [/^Yahoo 行情获取失败（(.+?)）: (.+)$/, "Yahoo 相場の取得に失敗（$1）: $2", "Yahoo quote failed ($1): $2"],
+  [/^系统通知失败: (.+)$/, "システム通知に失敗: $1", "System notification failed: $1"],
+  [/^请求参数格式不正确: (.+)$/, "リクエストの形式が正しくありません: $1", "Invalid request parameters: $1"],
+  [/^数字格式不正确: (.+)$/, "数値の形式が正しくありません: $1", "Invalid number: $1"],
+  [/^网络错误: (.+)$/, "ネットワークエラー: $1", "Network error: $1"],
+  [/^SEC 没有这个美股代码: (\S+)（港股内部人披露在 v2 计划中）$/, "SEC にこの米国株コードはありません: $1（香港株のインサイダー開示は v2 で対応予定）", "SEC has no such US ticker: $1 (HK insider disclosures are planned for v2)"],
+  [/^13F 申报里没有持仓表: (.+)$/, "13F 届出に保有明細がありません: $1", "No information table in 13F filing: $1"],
+  [/^CFTC 没有数据: (.+)$/, "CFTC のデータがありません: $1", "No CFTC data: $1"],
+];
+
+// 用户数据里偶尔出现的中文词 → 术语替换（只影响显示）
+const GLOSSARY = [
+  ["行情已过期，已跳过提醒", "相場データが古いため通知をスキップ", "quote data is stale, alert skipped"],
+  ["价格异动", "価格急変", "Price move"],
+  ["放量", "出来高急増", "Volume spike"],
+  ["RSI 超买", "RSI 買われ過ぎ", "RSI overbought"],
+  ["RSI 超卖", "RSI 売られ過ぎ", "RSI oversold"],
+  ["52 周新高", "52 週高値更新", "52-wk high"],
+  ["52 周新低", "52 週安値更新", "52-wk low"],
+];
+GLOSSARY.sort((a, b) => b[0].length - a[0].length);
+
+// done：已经是译文的字符串（日文里也有汉字，避免被当成“未翻译的中文”再处理）
+const I18N = { lang: "en", ja: new Map(), en: new Map(), miss: new Set(), done: new Set() };
+for (const [zh, ja, en] of ENTRIES) { I18N.ja.set(zh, ja); I18N.en.set(zh, en); }
+// done 里除了词典译文，还会记下带变量的译文（时间、数字），超过上限就重置回只含词典译文
+function resetDone() { I18N.done.clear(); for (const [, ja, en] of ENTRIES) { I18N.done.add(ja); I18N.done.add(en); } }
+resetDone();
+const DONE_MAX = ENTRIES.length * 2 + 3000;
+try { I18N.lang = localStorage.getItem("qs-lang") || "en"; } catch {}
+const HAS_CJK = /[一-鿿]/;
+
+function gl(s) {
+  if (I18N.lang === "zh" || !s || !HAS_CJK.test(s)) return s;
+  const k = I18N.lang === "ja" ? 1 : 2;
+  let out = String(s);
+  for (const g of GLOSSARY) if (out.includes(g[0])) out = out.split(g[0]).join(g[k]);
+  I18N.done.add(out);
+  return out;
+}
+
+// 翻译一段文字：精确匹配 → 带变量的模式 → 原样返回（并记录，便于补齐词典）
+function tr(s) {
+  if (I18N.lang === "zh" || s == null || !HAS_CJK.test(s)) return s;
+  const m = String(s).match(/^(\s*)([\s\S]*?)(\s*)$/);
+  const core = m[2];
+  const dict = I18N[I18N.lang];
+  if (dict.has(core)) return m[1] + dict.get(core) + m[3];
+  if (I18N.done.has(core)) return s;
+  for (const [re, ja, en] of PATTERNS) {
+    const r = core.match(re);
+    if (!r) continue;
+    const tpl = I18N.lang === "ja" ? ja : en;
+    const out = tpl.replace(/\$(\d)/g, (_, i) => { const v = r[+i] ?? ""; return dict.has(v) ? dict.get(v) : gl(v); });
+    if (I18N.done.size > DONE_MAX) resetDone();
+    I18N.done.add(out);
+    return m[1] + out + m[3];
+  }
+  if (I18N.miss.size > 2000) I18N.miss.clear(); // 长时间开着的页面里时间、报错等字符串会不断变化，限制集合大小
+  I18N.miss.add(core);
+  return s;
+}
+
+// ---------------- DOM 自动翻译 ----------------
+const I18N_ORIG = new WeakMap();   // 文本节点 → 中文原文
+const I18N_OUT = new WeakMap();    // 文本节点 → 上次写入的译文
+const I18N_ATTR = new WeakMap();   // 元素 → { 属性: 中文原文 }
+const I18N_ATTRS = ["placeholder", "title", "aria-label"];
+const SKIP = new Set(["SCRIPT", "STYLE", "TEXTAREA", "INPUT"]);
+
+function i18nText(node) {
+  if (node.parentNode && SKIP.has(node.parentNode.nodeName)) return;
+  if (node.parentElement?.closest('[translate="no"]')) return;
+  const cur = node.data;
+  let orig = I18N_ORIG.get(node);
+  if (orig === undefined || cur !== I18N_OUT.get(node)) { // 新节点或被程序改写过
+    if (!HAS_CJK.test(cur) && orig === undefined) return;
+    orig = cur;
+    I18N_ORIG.set(node, orig);
+  }
+  const out = tr(orig);
+  I18N_OUT.set(node, out);
+  if (out !== cur) node.data = out;
+}
+function i18nAttrs(el) {
+  if (el.closest?.('[translate="no"]')) return;
+  let rec = I18N_ATTR.get(el);
+  for (const a of I18N_ATTRS) {
+    const v = el.getAttribute?.(a);
+    if (v == null) continue;
+    if (!rec) I18N_ATTR.set(el, (rec = {}));
+    const last = rec["__" + a];
+    if (rec[a] === undefined || v !== last) { if (!HAS_CJK.test(v) && rec[a] === undefined) continue; rec[a] = v; }
+    const out = tr(rec[a]);
+    rec["__" + a] = out;
+    if (out !== v) el.setAttribute(a, out);
+  }
+}
+function i18nWalk(root) {
+  if (!root) return;
+  if (root.nodeType === 3) return i18nText(root);
+  if (root.nodeType !== 1 || SKIP.has(root.nodeName) && root.nodeName !== "INPUT") { if (root.nodeName === "INPUT") i18nAttrs(root); return; }
+  i18nAttrs(root);
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+  let n;
+  while ((n = w.nextNode())) n.nodeType === 3 ? i18nText(n) : i18nAttrs(n);
+}
+
+const i18nObserver = new MutationObserver((muts) => {
+  for (const m of muts) {
+    if (m.type === "childList") m.addedNodes.forEach(i18nWalk);
+    else if (m.type === "characterData") i18nText(m.target);
+    else if (m.type === "attributes") i18nAttrs(m.target);
+  }
+});
+
+// 系统弹窗也走翻译
+const _prompt = window.prompt.bind(window), _confirm = window.confirm.bind(window);
+window.prompt = (msg, def) => _prompt(tr(msg), def == null ? def : tr(def));
+window.confirm = (msg) => _confirm(tr(msg));
+
+function applyLang(lang) {
+  I18N.lang = LANGS[lang] ? lang : "en";
+  resetDone(); // 日文和中文同形的译文（如“原油 ▼”）不能带到下一种语言里当成“已翻译”
+  try { localStorage.setItem("qs-lang", I18N.lang); } catch {}
+  document.documentElement.lang = { ja: "ja", zh: "zh-CN", en: "en" }[I18N.lang];
+  document.title = tr("量化股神");
+  i18nWalk(document.body);
+  document.querySelectorAll("[data-lang]").forEach((b) => b.classList.toggle("on", b.dataset.lang === I18N.lang));
+}
+
+function i18nInit() {
+  applyLang(I18N.lang);
+  i18nObserver.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: I18N_ATTRS });
+}

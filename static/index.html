@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>量化股神</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Crect width='120' height='120' rx='24' fill='%2304070b'/%3E%3Cpath d='M10 72H30L35 66L40 72H46L54 28L62 94L68 62L73 70H82L90 46L96 54L110 34' fill='none' stroke='%2338bdf8' stroke-width='9' stroke-linejoin='round' stroke-linecap='round'/%3E%3Ccircle cx='110' cy='34' r='8' fill='%23ffc93c'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="preload" href="fonts/Inter-0.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="hud.css?v=2">
+<link rel="stylesheet" href="nav.css?v=2">
+<link rel="stylesheet" href="market.css?v=2">
+<link rel="stylesheet" href="smart.css?v=2">
+<link rel="stylesheet" href="gold.css?v=1">
+<link rel="stylesheet" href="quant.css?v=3">
+<script src="boot.js?v=1"></script>
+<script src="vendor/cytoscape.min.js"></script>
+</head>
+<body>
+<div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="app">
+  <!-- ======================= 侧边导航 ======================= -->
+  <aside class="nav">
+    <div class="nav-edge" aria-hidden="true"></div>
+    <div class="brand">
+<svg class="logo qs-mark" viewBox="0 0 120 120" aria-hidden="true">
+        <rect class="scr" x="1.5" y="1.5" width="117" height="117" rx="22"/>
+        <path class="grid" d="M10 40H110M10 60H110M10 80H110M30 20V100M60 20V100M90 20V100"/>
+        <path class="ecg" d="M10 72H30L35 66L40 72H46L54 28L62 94L68 62L73 70H82L90 46L96 54L110 34"/>
+        <path class="scan" d="M10 72H30L35 66L40 72H46L54 28L62 94L68 62L73 70H82L90 46L96 54L110 34"/>
+        <rect class="cb" x="50.5" y="30" width="7" height="14" rx="1.5"/>
+        <rect class="cb cb2" x="86.5" y="47" width="7" height="11" rx="1.5"/>
+        <circle class="tip" cx="110" cy="34" r="4"/>
+      </svg>
+      <div class="brand-txt">
+        <div class="brand-name" data-text="量化股神">量化股神</div>
+        <div class="brand-sub">QUANT STOCK GOD <i>v1.0</i></div>
+      </div>
+      <button id="nav-collapse" class="nav-collapse" type="button" title="收起 / 展开侧栏">
+        <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+    </div>
+
+    <div class="nav-section"><span>NAVIGATION</span><i></i></div>
+    <nav class="tabs" id="nav">
+      <div class="nav-ind" id="nav-ind" aria-hidden="true"><i></i></div>
+      <button data-tab="market" class="active" title="市场总览（快捷键 1）">
+        <span class="ni-idx">01</span>
+        <span class="ni-ico"><svg viewBox="0 0 24 24"><path d="M3.5 17a8.5 8.5 0 1117 0"/><path d="M12 17l4.2-5.2"/><circle cx="12" cy="17" r="1.4"/><path d="M6.6 11.6l1 .8M12 8.5v1.3M17.4 11.6l-1 .8"/></svg></span>
+        <span class="ni-txt"><b>市场总览</b><small>MARKET PULSE</small></span>
+        <span class="ni-arrow">›</span>
+      </button>
+      <button data-tab="watch" title="自选监控（快捷键 2）">
+        <span class="ni-idx">02</span>
+        <span class="ni-ico"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+        <span class="ni-txt"><b>自选监控</b><small>WATCHLIST</small></span>
+        <span id="nav-new" class="nav-badge" hidden></span><span class="ni-arrow">›</span>
+      </button>
+      <button data-tab="smart" title="聪明钱（快捷键 3）">
+        <span class="ni-idx">03</span>
+        <span class="ni-ico"><svg viewBox="0 0 24 24"><path d="M3 17l5.5-5.5 4 4L21 7"/><path d="M15 7h6v6"/><path d="M3 21h18"/></svg></span>
+        <span class="ni-txt"><b>聪明钱</b><small>SMART MONEY</small></span>
+        <span class="ni-arrow">›</span>
+      </button>
+      <button data-tab="cot" title="商品持仓（快捷键 4）">
+        <span class="ni-idx">04</span>
+        <span class="ni-ico"><svg viewBox="0 0 24 24"><rect x="3" y="12" width="4" height="8"/><rect x="10" y="7" width="4" height="13"/><rect x="17" y="4" width="4" height="16"/></svg></span>
+        <span class="ni-txt"><b>商品持仓</b><small>COT POSITIONING</small></span>
+        <span class="ni-arrow">›</span>
+      </button>
+      <button data-tab="news" title="新闻影响（快捷键 5）">
+        <span class="ni-idx">05</span>
+        <span class="ni-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="14" height="16" rx="1.5"/><path d="M17 8h3v10a2 2 0 01-2 2H5"/><path d="M6.5 8h7M6.5 11.5h7M6.5 15h4"/></svg></span>
+        <span class="ni-txt"><b>新闻影响</b><small>NEWS IMPACT</small></span>
+        <span id="nav-news" class="nav-badge" hidden></span><span class="ni-arrow">›</span>
+      </button>
+      <button data-tab="settings" title="设置（快捷键 6）">
+        <span class="ni-idx">06</span>
+        <span class="ni-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg></span>
+        <span class="ni-txt"><b>设置</b><small>SYS CONFIG</small></span>
+        <span class="ni-arrow">›</span>
+      </button>
+    </nav>
+
+    <div class="nav-foot">
+      <div class="nav-section"><span>SYSTEM STATUS</span><i></i></div>
+      <div id="src-status" class="src-status"></div>
+      <div class="sys-meta">
+        <div><span>API</span><b id="sys-lat">— ms</b></div>
+        <div><span>UPTIME</span><b id="sys-up">00:00:00</b></div>
+        <svg id="sys-spark" class="spark" viewBox="0 0 100 22" preserveAspectRatio="none" aria-hidden="true"><path class="area"/><path class="line"/><circle r="1.8"/></svg>
+      </div>
+      <div class="lang-switch" translate="no"><button type="button" data-lang="en">EN</button><button type="button" data-lang="ja">日本語</button><button type="button" data-lang="zh">中文</button></div>
+      <button id="theme-toggle" class="ghost theme-btn" type="button" title="切换配色：蓝色 HUD → 黑金 → 浅色">
+        <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+        <span>切换配色</span>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="hudbar">
+      <span class="hb-id">
+<svg class="qs-mark hb-mark" viewBox="0 0 120 120" aria-hidden="true">
+        <rect class="scr" x="1.5" y="1.5" width="117" height="117" rx="22"/>
+        <path class="ecg" d="M10 72H30L35 66L40 72H46L54 28L62 94L68 62L73 70H82L90 46L96 54L110 34"/>
+        <path class="scan" d="M10 72H30L35 66L40 72H46L54 28L62 94L68 62L73 70H82L90 46L96 54L110 34"/>
+        <rect class="cb" x="50.5" y="30" width="7" height="14" rx="1.5"/>
+        <rect class="cb cb2" x="86.5" y="47" width="7" height="11" rx="1.5"/>
+        <circle class="tip" cx="110" cy="34" r="4"/>
+      </svg>
+        <span class="sys">SYS://QUANT-STOCK-GOD</span>
+      </span>
+      <span class="live"><i></i>LINK ONLINE</span>
+      <span class="tick" id="ticker" translate="no"><span>SPX <b>—</b></span><span>GOLD <b>—</b></span><span>WTI <b>—</b></span></span>
+      <span id="marquee" class="marquee" title="点击查看自选监控"><span id="marquee-track"></span></span>
+      <span class="hb-fng" id="hb-fng" title="恐惧与贪婪指数（点击查看市场总览）"><small>F&amp;G</small><b>—</b><i></i></span>
+      <span class="hb-gas" id="hb-mkt" translate="no"><small>NYSE</small><b>—</b></span>
+      <span id="hud-watch" translate="no">WATCH 0</span>
+      <span class="clock" id="clock" translate="no">NY --:--</span>
+      <i class="hb-beat" id="hb-beat" aria-hidden="true"></i>
+    </div>
+    <div id="upd-bar" class="upd-bar" hidden></div>
+
+    <!-- ======================= 市场总览 ======================= -->
+    <section id="tab-market" class="tab active">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">MODULE 01 // MARKET PULSE</div>
+          <h1>市场总览</h1>
+          <p>美股、港股、日股指数，美债收益率、美元、波动率，以及黄金、白银、原油、铜、天然气期货，一页看清市场温度。行情约延迟 15 分钟，每 5 分钟刷新。</p>
+        </div>
+        <div class="head-actions">
+          <span id="mk-upd" class="muted"></span>
+          <button id="mk-refresh" type="button" class="primary">刷新</button>
+        </div>
+      </header>
+      <div id="mk-msg" class="msg"></div>
+
+      <div class="mk-top">
+        <div class="card mk-fng">
+          <div class="card-head"><h3>恐惧与贪婪指数</h3><span class="spacer"></span><span id="mk-fng-src" class="muted"></span></div>
+          <div id="mk-gauge" class="mk-gauge"></div>
+          <div id="mk-cmp" class="mk-cmp"></div>
+          <div id="mk-parts" class="q-parts"></div>
+        </div>
+        <div class="card mk-read">
+          <div class="card-head"><h3>市场解读</h3><span class="spacer"></span><span class="muted">自动生成</span></div>
+          <ul id="mk-read" class="mk-list"></ul>
+          <p class="muted mk-disc">根据公开数据自动生成的客观描述，仅供参考，不构成投资建议。</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>指数 · 利率 · 美元</h3><span class="spacer"></span><span class="muted">Yahoo Finance · 日线</span></div>
+        <div id="mk-indices" class="q-grid"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>大宗商品期货</h3><span class="spacer"></span><span class="muted">COMEX / NYMEX / ICE 主力连续合约</span></div>
+        <div id="mk-commods" class="q-grid"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>宏观 · 美债收益率曲线</h3><span id="mc-spreads" class="mc-spreads"></span><span class="spacer"></span><span id="mc-src" class="muted"></span></div>
+        <div id="mc-msg" class="msg"></div>
+        <div class="mc-wrap">
+          <div id="mc-curve" class="mc-curve"></div>
+          <div id="mc-grid" class="q-grid mc-grid"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>情绪走势</h3><span class="spacer"></span>
+          <div class="seg" id="mk-range"><button type="button" data-d="30" class="on">30 天</button><button type="button" data-d="90">90 天</button><button type="button" data-d="250">1 年</button></div></div>
+        <div id="mk-chart" class="mk-chart"></div>
+      </div>
+    </section>
+
+    <!-- ======================= 自选监控 ======================= -->
+    <section id="tab-watch" class="tab">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">MODULE 02 // WATCHLIST SURVEILLANCE</div>
+          <h1>自选监控</h1>
+          <p>美股、港股（代码加 .HK）和期货（如 GC=F）。当日涨跌幅或成交量超过设定值时高亮，开启后台提醒后会推送 macOS 通知。</p>
+        </div>
+        <div class="head-actions">
+          <span id="w-upd" class="muted"></span>
+          <button id="w-refresh" type="button" class="primary">立即刷新</button>
+        </div>
+      </header>
+
+      <div class="card alert-card">
+        <div class="card-head"><h3>后台异动提醒</h3><span id="al-state" class="badge">—</span>
+          <span class="spacer"></span><span id="al-info" class="muted"></span></div>
+        <p class="muted al-desc">由本地服务在后台定时检查自选列表：当日涨跌幅绝对值 ≥ 设定百分比、成交量 ≥ 20 日均量的设定倍数、RSI 当天进入超买 / 超卖区，或创 52 周新高 / 新低，就推送 macOS 系统通知。同一品种同一交易日的同类异动只提醒一次。网页不用开着，只要服务在运行即可。</p>
+        <div class="form-row">
+          <label class="switch"><input id="al-on" type="checkbox"><i></i>开启后台提醒</label>
+          <label class="field"><span>检查间隔</span><select id="al-int"><option value="5">每 5 分钟</option><option value="15">每 15 分钟</option><option value="30">每 30 分钟</option><option value="60">每 60 分钟</option></select></label>
+          <label class="switch"><input id="al-sound" type="checkbox" checked><i></i>提示音</label>
+          <span class="spacer"></span>
+          <button id="al-test" type="button" class="ghost small">发送测试通知</button>
+          <button id="al-run" type="button" class="ghost small">立即检查一次</button>
+        </div>
+        <div id="al-hist" class="al-hist"></div>
+      </div>
+
+      <form id="watch-form" class="card form-card">
+        <div class="form-title">添加 / 修改自选</div>
+        <div class="form-row">
+          <input id="w-sym" placeholder="代码，如 AAPL / 0700.HK / GC=F / ^HSI" spellcheck="false" class="mono-input grow">
+          <input id="w-label" placeholder="名称（可选）" class="grow">
+          <label class="field"><span>涨跌幅阈值</span><input id="w-move" type="number" min="0" step="0.5" value="3" class="w-sm"><em>%</em></label>
+          <label class="field"><span>放量倍数</span><input id="w-vol" type="number" min="0" step="0.5" value="2" class="w-sm"><em>×</em></label>
+          <label class="switch" title="RSI(14) 当天升破 70 或跌破 30 时提醒（昨天收盘还不在该区间）"><input id="w-rsi" type="checkbox" checked><i></i>RSI 超买 / 超卖</label>
+          <label class="switch" title="现价高于此前 52 周最高收盘价，或低于最低收盘价时提醒"><input id="w-52" type="checkbox" checked><i></i>52 周新高 / 新低</label>
+          <button class="primary">加入自选</button>
+        </div>
+      </form>
+
+      <div class="card">
+        <div class="card-head"><h3>自选列表</h3><span id="watch-count" class="chip"></span><span class="spacer"></span><span class="muted">股票盘中成交量按时段折算成全天预估（*）；期货为当日累计，盘中偏低</span></div>
+        <div class="table-wrap"><table id="watch-table"></table></div>
+      </div>
+    </section>
+
+    <!-- ======================= 聪明钱 ======================= -->
+    <section id="tab-smart" class="tab">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">MODULE 03 // SMART MONEY · SEC EDGAR</div>
+          <h1>聪明钱</h1>
+          <p>美股公司内部人（董事、高管、10% 股东）用自己的钱在公开市场买入的记录（Form 4 交易代码 P），以及知名基金每季度 13F 持仓的变化。</p>
+        </div>
+      </header>
+      <div id="sm-msg" class="msg"></div>
+
+      <div class="seg sm-sub" id="sm-sub"><button type="button" data-s="insider" class="on">内部人买入 · Form 4</button><button type="button" data-s="13f">机构持仓 · 13F</button></div>
+
+      <div id="sm-insider">
+        <form id="ins-form" class="searchbar">
+          <div class="search-input">
+            <svg viewBox="0 0 24 24"><path d="M3 17l5.5-5.5 4 4L21 7"/><path d="M15 7h6v6"/></svg>
+            <input id="ins-sym" placeholder="美股代码，如 AAPL / JPM / KO" autocomplete="off" spellcheck="false">
+          </div>
+          <select id="ins-limit" title="扫描最近多少份 Form 4 申报" aria-label="扫描份数">
+            <option value="80">最近 80 份申报</option>
+            <option value="150" selected>最近 150 份申报</option>
+            <option value="300">最近 300 份申报</option>
+          </select>
+          <button type="submit" class="primary lg">分析内部人买入</button>
+        </form>
+        <div id="ins-quick" class="recent"></div>
+        <div id="ins-result"></div>
+      </div>
+
+      <div id="sm-13f" hidden>
+        <div class="card">
+          <div class="card-head"><h3>跟踪的基金</h3><span id="mg-count" class="chip"></span><span class="spacer"></span>
+            <span id="f13-upd" class="muted"></span><button id="f13-load" type="button" class="primary">加载 13F</button></div>
+          <form id="mg-form" class="form-row">
+            <input id="mg-cik" placeholder="CIK，如 1067983" class="mono-input w-md" spellcheck="false">
+            <input id="mg-name" placeholder="基金名称" class="grow">
+            <button class="ghost">添加基金</button>
+            <a class="muted" href="https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=13F-HR" target="_blank" rel="noopener">在 EDGAR 查 CIK ↗</a>
+          </form>
+          <div id="mg-list" class="mg-list"></div>
+        </div>
+        <div class="graph-wrap q-graph">
+          <div id="cy13"></div>
+          <div id="g13-empty" class="graph-overlay">
+            <div class="sb-status">STANDBY · AWAITING 13F</div>
+            <h3>基金 ↔ 股票 持仓变化图</h3>
+            <p>点击“加载 13F”。六边形是基金，圆点是股票；线的颜色表示本季度动作，线越粗金额越大</p>
+          </div>
+          <div class="graph-tools">
+            <button type="button" data-z13="fit" title="适应窗口"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+          </div>
+          <div class="legend">
+            <span><i class="line" style="background:var(--q-new)"></i>新建仓</span>
+            <span><i class="line" style="background:var(--in)"></i>加仓</span>
+            <span><i class="line" style="background:var(--q-reduce)"></i>减仓</span>
+            <span><i class="line" style="background:var(--out)"></i>清仓</span>
+            <span><i class="line" style="background:var(--q-hold)"></i>持平</span>
+            <span class="sep"></span>
+            <span>显示每只基金前 12 大持仓 + 全部新建仓 / 清仓</span>
+            <span class="sep"></span>
+            <label class="switch"><input id="g13-hold" type="checkbox"><i></i>显示持平</label>
+          </div>
+        </div>
+        <div id="f13-detail"></div>
+      </div>
+    </section>
+
+    <!-- ======================= 商品持仓 ======================= -->
+    <section id="tab-cot" class="tab">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">MODULE 04 // CFTC COMMITMENTS OF TRADERS</div>
+          <h1>商品持仓</h1>
+          <p>CFTC 每周持仓报告（细分版，仅期货）中“管理资金”（对冲基金、CTA 等投机资金）的净多头，以及它在最近 3 年里所处的百分位。数据截至每周二，周五公布。</p>
+        </div>
+        <div class="head-actions">
+          <span id="cot-upd" class="muted"></span>
+          <button id="cot-refresh" type="button" class="primary">刷新</button>
+        </div>
+      </header>
+      <div id="cot-msg" class="msg"></div>
+      <div id="cot-grid" class="cot-grid"></div>
+      <p class="muted sm-note">百分位：当前净持仓高于最近 3 年中多少比例的周。COT 指数：（当前 − 3 年最低）÷（3 年最高 − 3 年最低）。极端值说明投机仓位拥挤，但不代表马上反转。仅供参考，不构成投资建议。</p>
+
+      <div class="card eia-head">
+        <div class="card-head"><h3>EIA 库存周报</h3><span class="spacer"></span><span id="eia-upd" class="muted"></span><span id="eia-src" class="chip"></span></div>
+        <p class="muted">美国能源信息署每周公布的商业库存（石油周三、天然气周四）。和过去 5 年同一周的平均水平比较：库存明显高于往年同期通常说明供应偏宽松，低于则偏紧。</p>
+      </div>
+      <div id="eia-msg" class="msg"></div>
+      <div id="eia-grid" class="cot-grid"></div>
+    </section>
+
+    <!-- ======================= 设置 ======================= -->
+    <section id="tab-news" class="tab">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">MODULE 05 // NEWS IMPACT</div>
+          <h1>新闻影响</h1>
+          <p>抓取最近 72 小时与原油、天然气、黄金、白银、铜相关的公开新闻标题，用关键词规则识别其中的驱动因素（如 OPEC 减产、航道风险、美联储鹰鸽、美元、库存、中国政策、天气、矿山停产），并给出这类因素通常的影响方向。</p>
+        </div>
+        <div class="head-actions">
+          <span id="nw-upd" class="muted"></span>
+          <button id="nw-refresh" type="button" class="primary">刷新</button>
+        </div>
+      </header>
+      <div class="seg nw-view" id="nw-view"><button type="button" data-v="commod" class="on">大宗商品</button><button type="button" data-v="tech">AI · 科技股</button></div>
+      <div id="nw-msg" class="msg"></div>
+      <div id="nw-commod">
+      <div class="card alert-card">
+        <div class="card-head"><h3>重大新闻提醒</h3><span id="na-state" class="badge">—</span><span class="spacer"></span><span id="na-info" class="muted"></span></div>
+        <p class="muted al-desc">后台每 15 分钟检查一次：通常影响强（▲▲ / ▼▼）的驱动因素、标题直接提到所选商品、并且 6 小时内至少有设定数量的不同媒体报道时，推送 macOS 通知。同一“因素 + 商品”12 小时内只提醒一次。和自选监控的异动提醒分开开关；提示音和语言沿用那边的设置。</p>
+        <div class="form-row">
+          <label class="switch"><input id="na-on" type="checkbox"><i></i>开启重大新闻提醒</label>
+          <span id="na-assets" class="na-assets"></span>
+          <label class="field"><span>至少</span><select id="na-src"><option value="1">1 家媒体</option><option value="2">2 家媒体</option><option value="3">3 家媒体</option></select></label>
+          <span class="spacer"></span>
+          <button id="na-test" type="button" class="ghost small">发送测试通知</button>
+          <button id="na-run" type="button" class="ghost small">立即检查一次</button>
+        </div>
+        <div id="na-hist" class="al-hist"></div>
+      </div>
+      <div id="nw-assets" class="nw-assets"></div>
+      <div class="card">
+        <div class="card-head"><h3>新闻倾向事后验证</h3><span class="spacer"></span><span id="nv-since" class="muted"></span></div>
+        <p class="muted nv-desc">每天保留首次新闻倾向，以信号日期（UTC）之后首个交易日收盘为基准，统计后续 1 / 5 个交易日的方向命中率。同一基准交易日只计一次，当天日线不计入；上涨占比仅供对照，小样本不能说明预测能力。</p>
+        <div class="table-wrap"><table id="nv-table"></table></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>新闻标题</h3><span id="nw-count" class="chip"></span><span class="spacer"></span>
+          <div class="seg" id="nw-filter"><button type="button" data-a="" class="on">全部</button><button type="button" data-a="oil">原油</button><button type="button" data-a="natgas">天然气</button><button type="button" data-a="gold">黄金</button><button type="button" data-a="silver">白银</button><button type="button" data-a="copper">铜</button></div>
+          <label class="switch"><input id="nw-drv" type="checkbox" checked><i></i>只看有驱动因素的</label>
+        </div>
+        <div id="nw-list" class="nw-list"></div>
+      </div>
+      <details class="card nw-rules">
+        <summary><h3>判断规则</h3><span class="muted">每条规则的关键词和通常的传导逻辑</span></summary>
+        <div class="table-wrap"><table id="nw-rules"></table></div>
+      </details>
+      <p class="muted sm-note">说明：这是基于关键词的规则归纳，只表示“这类消息通常会怎样影响价格”，不是价格预测。实际走势还取决于预期是否已被消化、消息真假和力度；同一事件常被多家媒体重复报道（汇总时同一因素对同一商品最多计 4 条），标题提到的商品按全权重计算，没提到的按一半计算，越新的消息权重越高（半衰期 24 小时）。标题保留英文原文。仅供参考，不构成投资建议。</p>
+      </div>
+
+      <div id="nw-tech" hidden>
+        <div class="card">
+          <div class="card-head"><h3>话题标签</h3><span class="spacer"></span><span id="tn-upd" class="muted"></span><span class="muted">点击标签筛选</span></div>
+          <div id="tn-topics" class="tn-topics"></div>
+        </div>
+        <div id="tn-cos" class="nw-assets"></div>
+        <div class="card">
+          <div class="card-head"><h3>科技新闻</h3><span id="tn-count" class="chip"></span><span class="spacer"></span><span id="tn-filter" class="tn-filter"></span></div>
+          <div id="tn-list" class="nw-list"></div>
+        </div>
+        <p class="muted sm-note">说明：按关键词给每条标题打“公司”和“话题”两类标签。话题后面的 + / − 是这类消息对被点名公司通常的含义（如上调指引偏正面、出口管制或监管调查偏负面），“行情”类标签只描述股价表现、不计入倾向；公司卡片的倾向分按时间衰减（半衰期 24 小时）加总。一条标题同时讲几件事时，所有被点名的公司都会带上全部标签。OpenAI、Anthropic、xAI 未上市，只做标签。标题保留英文原文。仅供参考，不构成投资建议。</p>
+      </div>
+    </section>
+
+    <section id="tab-settings" class="tab">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">MODULE 06 // SYSTEM CONFIG</div>
+          <h1>设置</h1>
+          <p>API Key 和邮箱只保存在本机的 data/config.json 里，页面不会回显已保存的内容。</p>
+        </div>
+      </header>
+      <div class="settings-grid">
+        <form id="cfg-form" class="card stack">
+          <label class="setting">
+            <div class="setting-head"><b>SEC EDGAR 联系邮箱</b><span class="chip">聪明钱需要</span><span id="cfg-sec" class="badge"></span></div>
+            <input id="cfg-sec_email" type="email" placeholder="留空则不修改" autocomplete="off">
+            <small class="muted">SEC 要求每个请求的 User-Agent 里带联系邮箱，不需要注册。只用于向 SEC 表明身份。</small>
+          </label>
+          <label class="setting">
+            <div class="setting-head"><b>FRED API Key</b><span class="chip">可选</span><span id="cfg-fred" class="badge"></span></div>
+            <input id="cfg-fred_key" type="password" placeholder="留空则不修改" autocomplete="off">
+            <small class="muted">美联储经济数据（利率、通胀、就业等）。免费注册：<a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank" rel="noopener">fred.stlouisfed.org</a></small>
+          </label>
+          <label class="setting">
+            <div class="setting-head"><b>EIA API Key</b><span class="chip">可选</span><span id="cfg-eia" class="badge"></span></div>
+            <input id="cfg-eia_key" type="password" placeholder="留空则不修改" autocomplete="off">
+            <small class="muted">美国能源信息署：原油 / 天然气库存周报。免费注册：<a href="https://www.eia.gov/opendata/register.php" target="_blank" rel="noopener">eia.gov/opendata</a></small>
+          </label>
+          <label class="setting">
+            <div class="setting-head"><b>Finnhub API Key</b><span class="chip">可选 · v2</span><span id="cfg-finnhub" class="badge"></span></div>
+            <input id="cfg-finnhub_key" type="password" placeholder="留空则不修改" autocomplete="off">
+            <small class="muted">实时报价和公司新闻（免费档）。注册：<a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io</a></small>
+          </label>
+          <div><button class="primary">保存设置</button></div>
+        </form>
+        <div class="stack">
+          <div class="card">
+            <h3>服务</h3>
+            <table class="plain" id="svc-info"></table>
+            <div class="form-row"><button id="svc-restart" type="button" class="primary small">重启服务</button><span class="muted">改了 server.py 后点这里生效；只改了界面文件刷新页面即可</span></div>
+          </div>
+          <div class="card">
+            <h3>外观</h3>
+            <p class="muted">配色方案</p>
+            <div class="lang-switch lg skin-switch"><button type="button" data-skin="blue">蓝色 HUD</button><button type="button" data-skin="gold">黑金</button><button type="button" data-skin="light">浅色</button></div>
+          </div>
+          <div class="card">
+            <h3>语言</h3>
+            <p class="muted" translate="no">Language · 言語</p>
+            <div class="lang-switch lg" translate="no"><button type="button" data-lang="en">EN</button><button type="button" data-lang="ja">日本語</button><button type="button" data-lang="zh">中文</button></div>
+          </div>
+          <div class="card">
+            <h3>数据源说明</h3>
+            <table class="plain">
+              <tr><td>行情</td><td>Yahoo Finance chart 接口（非官方，约 15 分钟延迟）</td></tr>
+              <tr><td>恐惧与贪婪</td><td>CNN（非官方）；不可用时用本地合成指数</td></tr>
+              <tr><td>内部人买入</td><td>SEC Form 4（申报后约 2 个工作日内）</td></tr>
+              <tr><td>机构持仓</td><td>SEC 13F（季度，季末后约 45 天）</td></tr>
+              <tr><td>商品持仓</td><td>CFTC COT（每周二数据，周五公布）</td></tr>
+            </table>
+            <p class="muted">全部为免费公开数据，可能延迟、缺失或被限流。仅供个人研究，不构成投资建议。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="toast" class="toast"></div>
+<div id="detail" class="dt-overlay" hidden role="dialog" aria-modal="true">
+  <div class="dt-panel card">
+    <div class="dt-head"><div id="dt-title" class="dt-title"></div><button type="button" class="small ghost" data-dt-close aria-label="关闭">✕</button></div>
+    <div id="dt-body"></div>
+  </div>
+</div>
+<div id="boot" hidden>
+<svg class="qs-mark boot-mark" viewBox="0 0 120 120" aria-hidden="true">
+        <rect class="scr" x="1.5" y="1.5" width="117" height="117" rx="22"/>
+        <path class="grid" d="M10 40H110M10 60H110M10 80H110M30 20V100M60 20V100M90 20V100"/>
+        <path class="ecg" d="M10 72H30L35 66L40 72H46L54 28L62 94L68 62L73 70H82L90 46L96 54L110 34"/>
+        <path class="scan" d="M10 72H30L35 66L40 72H46L54 28L62 94L68 62L73 70H82L90 46L96 54L110 34"/>
+        <rect class="cb" x="50.5" y="30" width="7" height="14" rx="1.5"/>
+        <rect class="cb cb2" x="86.5" y="47" width="7" height="11" rx="1.5"/>
+        <circle class="tip" cx="110" cy="34" r="4"/>
+      </svg>
+  <div class="title">QUANT STOCK GOD</div>
+  <div class="lines" id="boot-lines"></div>
+  <div class="skip">CLICK TO SKIP</div>
+</div>
+<script src="i18n.js?v=4"></script>
+<script src="app.js?v=3"></script>
+<script src="market.js?v=3"></script>
+<script src="smart.js?v=2"></script>
+<script src="cot.js?v=2"></script>
+<script src="detail.js?v=3"></script>
+<script src="macro.js?v=1"></script>
+<script src="news.js?v=1"></script>
+<script src="tech.js?v=1"></script>
+</body>
+</html>
