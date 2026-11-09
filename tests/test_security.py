@@ -10,6 +10,7 @@ import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import server as s  # noqa: E402
@@ -123,6 +124,21 @@ class Security(unittest.TestCase):
         # 替换模式
         st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": [{"sym": "TSLA"}], "replace": True}), h)
         self.assertEqual([i["sym"] for i in s.load_json("watchlist.json", [])], ["TSLA"])
+        # 持仓也随备份导入；股数为 0 的整份拒绝
+        st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": [], "positions": [{"sym": "AAPL", "shares": 5, "cost": 100}]}), h)
+        self.assertEqual((st, json.loads(data)["positions_added"]), (200, 1))
+        self.assertEqual(s.load_json("positions.json", [])[0]["shares"], 5.0)
+        st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": [], "positions": [{"sym": "AAPL", "shares": 0}]}), h)
+        self.assertEqual(st, 400)
+        st, _, data = self.req("GET", "/api/watchlist/export")
+        self.assertEqual(json.loads(data)["positions"][0]["sym"], "AAPL")
+        # 持仓接口：写入要自定义头；删除
+        st, _, _ = self.req("POST", "/api/portfolio", json.dumps({"sym": "MSFT", "shares": 1, "cost": 1}), {"Content-Type": "application/json"})
+        self.assertEqual(st, 403)
+        with mock.patch.object(s, "quote_summary", side_effect=s.ApiError("offline")):
+            st, _, data = self.req("DELETE", "/api/portfolio?sym=AAPL", None, {"X-QS-Client": "1"})
+        self.assertEqual(st, 200)
+        self.assertEqual(s.load_json("positions.json", []), [])
 
     def test_long_cache_only_for_successful_static_files(self):
         st, h, _ = self.req("GET", "/fonts/fonts.css")

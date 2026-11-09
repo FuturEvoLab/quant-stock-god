@@ -38,6 +38,25 @@ tr.q-hit td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 #watch-table th.sortable.asc::after { content: " ▲"; font-size: 9px; color: var(--accent); }
 #watch-table th.sortable.desc::after { content: " ▼"; font-size: 9px; color: var(--accent); }
 .dg-row { border-top: 1px dashed var(--border); padding-top: 10px; margin-top: 8px; }
+.q-flag.golden { background: color-mix(in srgb, var(--gold) 16%, transparent); color: var(--gold); }
+.q-flag.death { background: color-mix(in srgb, var(--out) 16%, transparent); color: var(--out); }
+
+/* 持仓盈亏 */
+.pf-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.pf-tile { padding: 12px 14px; border: 1px solid var(--border); background: var(--surface-2); min-width: 0; }
+.pf-tile.wide { grid-column: 1 / -1; }
+.pf-tile span { display: block; font-size: 11px; letter-spacing: .08em; color: var(--muted); }
+.pf-tile b { display: block; margin-top: 4px; font: 700 24px/1.1 var(--hud, var(--font)); color: var(--text); }
+.pf-tile.up b { color: var(--in); } .pf-tile.down b { color: var(--out); }
+.pf-tile small { display: block; margin-top: 3px; font: 600 11.5px var(--mono); color: var(--text-2); }
+#pf-form input.w-md { width: 120px; }
+.pf-w { position: relative; width: 90px; height: 14px; background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.pf-w i { display: block; height: 100%; background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.pf-w span { position: absolute; inset: 0; font: 600 10px/14px var(--mono); text-align: center; color: var(--text); }
+#pf-table .row-acts { white-space: nowrap; text-align: right; }
+#pf-table tr.pf-totals td { background: var(--surface-2); font-size: 12px; }
+#pf-table tr.pf-totals span { margin-right: 18px; } #pf-table tr.pf-totals i { font-style: normal; }
+#pf-table td.up, #pf-table i.up { color: var(--in); } #pf-table td.down, #pf-table i.down { color: var(--out); }
 .dg-row #dg-time { width: 104px; }
 tr.q-hit td:first-child { box-shadow: inset 2px 0 0 var(--accent); animation: breathe 5s ease-in-out infinite; }
 #watch-table .row-acts { white-space: nowrap; text-align: right; }

@@ -7,7 +7,7 @@ const getVar = (v) => getComputedStyle(document.documentElement).getPropertyValu
 
 const state = { watch: [], rows: [], cfg: {}, sort: null };
 try { state.sort = JSON.parse(localStorage.getItem("qs-wsort") || "null"); } catch {}
-const FLAG_TEXT = { move: "价格异动", volume: "放量", rsi_hi: "RSI 超买", rsi_lo: "RSI 超卖", hi52: "52 周新高", lo52: "52 周新低", above: "升破目标价", below: "跌破目标价" };
+const FLAG_TEXT = { move: "价格异动", volume: "放量", rsi_hi: "RSI 超买", rsi_lo: "RSI 超卖", hi52: "52 周新高", lo52: "52 周新低", above: "升破目标价", below: "跌破目标价", golden: "均线金叉", death: "均线死叉" };
 
 // ---------------------------------------------------------------- 工具函数
 
@@ -81,7 +81,7 @@ function ago(ts) {
   return Math.floor(s / 86400) + " 天前";
 }
 function sparkSvg(vals, color, w = 100, h = 28) {
-  if (!vals?.length) return "";
+  if (!vals || vals.length < 2) return "";  // 只有一个点（新上市）画不出折线，分母会是 0
   const min = Math.min(...vals), max = Math.max(...vals), rng = max - min || 1;
   const pts = vals.map((v, i) => `${((i / (vals.length - 1)) * w).toFixed(1)},${(h - 2 - ((v - min) / rng) * (h - 4)).toFixed(1)}`).join(" ");
   return `<svg class="mk-spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline points="0,${h} ${pts} ${w},${h}" fill="${color}" opacity=".12" stroke="none"/><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.4" vector-effect="non-scaling-stroke"/></svg>`;
@@ -135,7 +135,7 @@ requestAnimationFrame(moveNavIndicator);
 
 document.addEventListener("keydown", (e) => {
   if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
-  const tab = { 1: "market", 2: "watch", 3: "smart", 4: "cot", 5: "news", 6: "settings" }[e.key];
+  const tab = { 1: "market", 2: "watch", 3: "portfolio", 4: "smart", 5: "cot", 6: "news", 7: "settings" }[e.key];
   if (tab) switchTab(tab);
 });
 
@@ -207,7 +207,7 @@ function renderWatch() {
           <td class="num mono ${r.rsi14 >= 70 ? "down" : r.rsi14 <= 30 ? "up" : ""}">${r.rsi14 != null ? r.rsi14.toFixed(0) : "—"}</td>
           <td>${r.pos52 != null ? `<div class="q-r52" title="${fmtPx(r.lo52)} – ${fmtPx(r.hi52)}"><i style="left:${r.pos52.toFixed(1)}%"></i></div>` : `<span class="muted">—</span>`}</td>
           <td class="spark-td">${sparkSvg(r.spark, (r.chg1m ?? 0) >= 0 ? IN : OUT, 120, 30)}</td>
-          <td class="num muted" translate="no">±${w.move_pct || 0}% · ×${w.vol_mult || 0}${w.rsi_alert !== false ? " · RSI" : ""}${w.hi52_alert !== false ? " · 52W" : ""}${w.above ? ` · ≥${fmtPx(w.above)}` : ""}${w.below ? ` · ≤${fmtPx(w.below)}` : ""}</td>
+          <td class="num muted" translate="no">±${w.move_pct || 0}% · ×${w.vol_mult || 0}${w.rsi_alert !== false ? " · RSI" : ""}${w.hi52_alert !== false ? " · 52W" : ""}${w.ma_alert !== false ? " · MA" : ""}${w.above ? ` · ≥${fmtPx(w.above)}` : ""}${w.below ? ` · ≤${fmtPx(w.below)}` : ""}</td>
           <td>${r.error ? `<span class="badge no" title="${esc(r.error)}">获取失败</span>` : flags || `<span class="muted">正常</span>`}${r.stale ? ` <span class="badge">缓存</span>` : ""}</td>
           <td class="row-acts"><button type="button" class="small ghost" data-wedit="${esc(w.sym)}">修改</button><button type="button" class="small ghost" data-wdel="${esc(w.sym)}">删除</button></td></tr>`;
       }).join("")
@@ -216,7 +216,7 @@ function renderWatch() {
 $("#watch-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const body = { sym: $("#w-sym").value, label: $("#w-label").value, move_pct: +$("#w-move").value, vol_mult: +$("#w-vol").value,
-    rsi_alert: $("#w-rsi").checked, hi52_alert: $("#w-52").checked, above: +$("#w-above").value || 0, below: +$("#w-below").value || 0 };
+    rsi_alert: $("#w-rsi").checked, hi52_alert: $("#w-52").checked, ma_alert: $("#w-ma").checked, above: +$("#w-above").value || 0, below: +$("#w-below").value || 0 };
   try {
     state.watch = await api("/api/watchlist", { method: "POST", body });
     $("#w-sym").value = $("#w-label").value = $("#w-above").value = $("#w-below").value = "";
@@ -242,7 +242,7 @@ $("#watch-table").addEventListener("click", async (e) => {
   if (ed) {
     const w = state.watch.find((x) => x.sym === ed.dataset.wedit);
     $("#w-sym").value = w.sym; $("#w-label").value = w.label || ""; $("#w-move").value = w.move_pct; $("#w-vol").value = w.vol_mult;
-    $("#w-rsi").checked = w.rsi_alert !== false; $("#w-52").checked = w.hi52_alert !== false;
+    $("#w-rsi").checked = w.rsi_alert !== false; $("#w-52").checked = w.hi52_alert !== false; $("#w-ma").checked = w.ma_alert !== false;
     $("#w-above").value = w.above || ""; $("#w-below").value = w.below || "";
     $("#w-sym").focus();
   }
@@ -409,7 +409,7 @@ function renderMarquee() {
   const hits = state.rows.filter((r) => r.flags?.length);
   const items = hits.length
     ? hits.map((r) => `<span class="mq ${r.chg1d >= 0 ? "in" : "out"}">◆ ${esc(r.label || r.sym)} ${FLAG_TEXT[r.flags[0]]} <b>${pct(r.chg1d)}</b> · ${fmtPx(r.price)}</span>`)
-    : [`<span class="mq">◆ SYSTEM READY · 自选 ${state.watch.length} 个品种</span>`, `<span class="mq">◆ 行情约延迟 15 分钟 · 不构成投资建议</span>`, `<span class="mq">◆ 快捷键 1–6 切换页面</span>`];
+    : [`<span class="mq">◆ SYSTEM READY · 自选 ${state.watch.length} 个品种</span>`, `<span class="mq">◆ 行情约延迟 15 分钟 · 不构成投资建议</span>`, `<span class="mq">◆ 快捷键 1–7 切换页面 · / 查看代码</span>`];
   const html = items.join("");
   $("#marquee-track").innerHTML = html + html; // 两份首尾相接，无缝循环
   $("#marquee-track").style.animationDuration = `${Math.max(30, items.length * 9)}s`;

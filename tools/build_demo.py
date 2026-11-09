@@ -84,6 +84,7 @@ def record():
     data["/api/news/accuracy"] = s.news_accuracy()
     data["/api/news/alerts"] = s.news_alert_status()
     data["/api/digest"] = s.digest_status()
+    data["/api/portfolio"] = s.portfolio()  # 临时目录里没有持仓：录到的是空列表
     data["/api/managers"] = s.managers()
     data["/api/status"] = s.source_status()
     data["/api/config"] = {k: False for k in s.KEY_FIELDS}

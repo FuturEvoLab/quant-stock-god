@@ -18,7 +18,7 @@ These checks are covered by `tests/test_security.py`, which starts a real server
 ## Where your data lives
 
 - **API keys and the SEC contact email** are stored in `data/secrets.json` (preferences such as alert settings live in `data/config.json`; versions before 1.2 kept both in `config.json` and are migrated on start). The page only ever shows "configured / not configured", and keys are kept out of error messages, logs, cache keys and the watchlist export. The file is written with owner-only permissions where the file system supports it (external drives formatted as exFAT do not). If you sync `data/` between computers, exclude `secrets.json`.
-- **Runtime data.** `data/` also holds the watchlist, alert history and cache. It is never committed (see `.gitignore`).
+- **Runtime data.** `data/` also holds the watchlist, portfolio positions (`positions.json`), alert history and cache. It is never committed (see `.gitignore`).
 - **Outbound requests.** The tool only contacts the public HTTPS data sources listed in the README. The symbols you look up are therefore visible to those providers. Your SEC contact email is sent only to sec.gov, as SEC requires.
 
 ## Reporting a vulnerability

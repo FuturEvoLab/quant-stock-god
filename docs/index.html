@@ -8,12 +8,12 @@
 <link rel="stylesheet" href="fonts/fonts.css">
 <link rel="preload" href="fonts/Inter-0.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="style.css?v=2">
-<link rel="stylesheet" href="hud.css?v=2">
+<link rel="stylesheet" href="hud.css?v=3">
 <link rel="stylesheet" href="nav.css?v=2">
 <link rel="stylesheet" href="market.css?v=3">
 <link rel="stylesheet" href="smart.css?v=2">
 <link rel="stylesheet" href="gold.css?v=1">
-<link rel="stylesheet" href="quant.css?v=5">
+<link rel="stylesheet" href="quant.css?v=6">
 <script src="boot.js?v=1"></script>
 <script src="demo.js" data-generated="1793622614"></script>
 </head>
@@ -35,7 +35,7 @@
       </svg>
       <div class="brand-txt">
         <div class="brand-name" data-text="量化股神">量化股神</div>
-        <div class="brand-sub">QUANT STOCK GOD <i>v1.2</i></div>
+        <div class="brand-sub">QUANT STOCK GOD <i>v1.3</i></div>
       </div>
       <button id="nav-collapse" class="nav-collapse" type="button" title="收起 / 展开侧栏">
         <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
@@ -57,26 +57,32 @@
         <span class="ni-txt"><b>自选监控</b><small>WATCHLIST</small></span>
         <span id="nav-new" class="nav-badge" hidden></span><span class="ni-arrow">›</span>
       </button>
-      <button data-tab="smart" title="聪明钱（快捷键 3）">
+      <button data-tab="portfolio" title="持仓盈亏（快捷键 3）">
         <span class="ni-idx">03</span>
+        <span class="ni-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 15h3"/><path d="M14 15h2"/></svg></span>
+        <span class="ni-txt"><b>持仓盈亏</b><small>PORTFOLIO</small></span>
+        <span class="ni-arrow">›</span>
+      </button>
+      <button data-tab="smart" title="聪明钱（快捷键 4）">
+        <span class="ni-idx">04</span>
         <span class="ni-ico"><svg viewBox="0 0 24 24"><path d="M3 17l5.5-5.5 4 4L21 7"/><path d="M15 7h6v6"/><path d="M3 21h18"/></svg></span>
         <span class="ni-txt"><b>聪明钱</b><small>SMART MONEY</small></span>
         <span class="ni-arrow">›</span>
       </button>
-      <button data-tab="cot" title="商品持仓（快捷键 4）">
-        <span class="ni-idx">04</span>
+      <button data-tab="cot" title="商品持仓（快捷键 5）">
+        <span class="ni-idx">05</span>
         <span class="ni-ico"><svg viewBox="0 0 24 24"><rect x="3" y="12" width="4" height="8"/><rect x="10" y="7" width="4" height="13"/><rect x="17" y="4" width="4" height="16"/></svg></span>
         <span class="ni-txt"><b>商品持仓</b><small>COT POSITIONING</small></span>
         <span class="ni-arrow">›</span>
       </button>
-      <button data-tab="news" title="新闻影响（快捷键 5）">
-        <span class="ni-idx">05</span>
+      <button data-tab="news" title="新闻影响（快捷键 6）">
+        <span class="ni-idx">06</span>
         <span class="ni-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="14" height="16" rx="1.5"/><path d="M17 8h3v10a2 2 0 01-2 2H5"/><path d="M6.5 8h7M6.5 11.5h7M6.5 15h4"/></svg></span>
         <span class="ni-txt"><b>新闻影响</b><small>NEWS IMPACT</small></span>
         <span id="nav-news" class="nav-badge" hidden></span><span class="ni-arrow">›</span>
       </button>
-      <button data-tab="settings" title="设置（快捷键 6）">
-        <span class="ni-idx">06</span>
+      <button data-tab="settings" title="设置（快捷键 7）">
+        <span class="ni-idx">07</span>
         <span class="ni-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg></span>
         <span class="ni-txt"><b>设置</b><small>SYS CONFIG</small></span>
         <span class="ni-arrow">›</span>
@@ -117,6 +123,7 @@
       <span id="marquee" class="marquee" title="点击查看自选监控"><span id="marquee-track"></span></span>
       <span class="hb-fng" id="hb-fng" title="恐惧与贪婪指数（点击查看市场总览）"><small>F&amp;G</small><b>—</b><i></i></span>
       <span class="hb-gas" id="hb-mkt" translate="no"><small>NYSE</small><b>—</b></span>
+      <form id="lookup" class="hb-lookup" title="查看任意代码的详情（快捷键 /）"><input id="lookup-sym" placeholder="代码…" spellcheck="false" autocomplete="off"></form>
       <span id="hud-watch" translate="no">WATCH 0</span>
       <span class="clock" id="clock" translate="no">NY --:--</span>
       <i class="hb-beat" id="hb-beat" aria-hidden="true"></i>
@@ -225,6 +232,7 @@
           <label class="field"><span>放量倍数</span><input id="w-vol" type="number" min="0" step="0.5" value="2" class="w-sm"><em>×</em></label>
           <label class="switch" title="RSI(14) 当天升破 70 或跌破 30 时提醒（昨天收盘还不在该区间）"><input id="w-rsi" type="checkbox" checked><i></i>RSI 超买 / 超卖</label>
           <label class="switch" title="现价高于此前 52 周最高收盘价，或低于最低收盘价时提醒"><input id="w-52" type="checkbox" checked><i></i>52 周新高 / 新低</label>
+          <label class="switch" title="20 日均线当天上穿（金叉）或下穿（死叉）50 日均线时提醒"><input id="w-ma" type="checkbox" checked><i></i>均线金叉 / 死叉</label>
           <label class="field" title="现价当天升破这个价位时提醒（昨收还在下方）；留空不设"><span>目标价 ≥</span><input id="w-above" type="number" min="0" step="any" placeholder="不设" class="w-sm mono-input"></label>
           <label class="field" title="现价当天跌破这个价位时提醒（昨收还在上方）；留空不设"><span>目标价 ≤</span><input id="w-below" type="number" min="0" step="any" placeholder="不设" class="w-sm mono-input"></label>
           <button class="primary">加入自选</button>
@@ -240,11 +248,43 @@
       </div>
     </section>
 
+    <!-- ======================= 持仓盈亏 ======================= -->
+    <section id="tab-portfolio" class="tab">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">MODULE 03 // PORTFOLIO P&amp;L</div>
+          <h1>持仓盈亏</h1>
+          <p>记录你的持仓（代码、股数、平均成本），用约 15 分钟延迟的行情计算市值、盈亏和当日变动；非美元品种按 Yahoo 汇率折算成美元合计。数据只保存在本机的 data/positions.json。</p>
+        </div>
+        <div class="head-actions">
+          <span id="pf-upd" class="muted"></span>
+          <button id="pf-refresh" type="button" class="primary">刷新</button>
+        </div>
+      </header>
+      <div id="pf-msg" class="msg"></div>
+      <div id="pf-sum" class="pf-sum"></div>
+      <form id="pf-form" class="card form-card">
+        <div class="form-title">添加 / 修改持仓</div>
+        <div class="form-row">
+          <input id="pf-sym" placeholder="代码，如 AAPL / 0700.HK / GC=F" spellcheck="false" class="mono-input grow" required>
+          <label class="field"><span>股数</span><input id="pf-shares" type="number" min="0" step="any" class="w-md mono-input" required></label>
+          <label class="field"><span>平均成本</span><input id="pf-cost" type="number" min="0" step="any" class="w-md mono-input" required></label>
+          <input id="pf-note" placeholder="备注（可选）" class="grow">
+          <button class="primary">保存持仓</button>
+        </div>
+      </form>
+      <div class="card">
+        <div class="card-head"><h3>持仓明细</h3><span id="pf-count" class="chip"></span><span class="spacer"></span><span id="pf-fx" class="muted" translate="no"></span></div>
+        <div class="table-wrap"><table id="pf-table"></table></div>
+        <p class="muted mk-disc">仅供记录与参考，不构成投资建议；未计入手续费、股息和税费。</p>
+      </div>
+    </section>
+
     <!-- ======================= 聪明钱 ======================= -->
     <section id="tab-smart" class="tab">
       <header class="page-head">
         <div>
-          <div class="eyebrow">MODULE 03 // SMART MONEY · SEC EDGAR</div>
+          <div class="eyebrow">MODULE 04 // SMART MONEY · SEC EDGAR</div>
           <h1>聪明钱</h1>
           <p>美股公司内部人（董事、高管、10% 股东）用自己的钱在公开市场买入的记录（Form 4 交易代码 P），以及知名基金每季度 13F 持仓的变化。</p>
         </div>
@@ -312,7 +352,7 @@
     <section id="tab-cot" class="tab">
       <header class="page-head">
         <div>
-          <div class="eyebrow">MODULE 04 // CFTC COMMITMENTS OF TRADERS</div>
+          <div class="eyebrow">MODULE 05 // CFTC COMMITMENTS OF TRADERS</div>
           <h1>商品持仓</h1>
           <p>CFTC 每周持仓报告（细分版，仅期货）中“管理资金”（对冲基金、CTA 等投机资金）的净多头，以及它在最近 3 年里所处的百分位。数据截至每周二，周五公布。</p>
         </div>
@@ -337,7 +377,7 @@
     <section id="tab-news" class="tab">
       <header class="page-head">
         <div>
-          <div class="eyebrow">MODULE 05 // NEWS IMPACT</div>
+          <div class="eyebrow">MODULE 06 // NEWS IMPACT</div>
           <h1>新闻影响</h1>
           <p>抓取最近 72 小时与原油、天然气、黄金、白银、铜相关的公开新闻标题，用关键词规则识别其中的驱动因素（如 OPEC 减产、航道风险、美联储鹰鸽、美元、库存、中国政策、天气、矿山停产），并给出这类因素通常的影响方向。</p>
         </div>
@@ -399,7 +439,7 @@
     <section id="tab-settings" class="tab">
       <header class="page-head">
         <div>
-          <div class="eyebrow">MODULE 06 // SYSTEM CONFIG</div>
+          <div class="eyebrow">MODULE 07 // SYSTEM CONFIG</div>
           <h1>设置</h1>
           <p>API Key 和邮箱只保存在本机的 data/secrets.json 里（偏好设置在 config.json），页面不会回显已保存的内容。</p>
         </div>
@@ -482,13 +522,14 @@
   <div class="lines" id="boot-lines"></div>
   <div class="skip">CLICK TO SKIP</div>
 </div>
-<script src="i18n.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="i18n.js?v=7"></script>
+<script src="app.js?v=7"></script>
 <script src="market.js?v=3"></script>
 <script src="corr.js?v=1"></script>
 <script src="smart.js?v=3"></script>
 <script src="cot.js?v=3"></script>
 <script src="detail.js?v=3"></script>
+<script src="portfolio.js?v=1"></script>
 <script src="macro.js?v=2"></script>
 <script src="news.js?v=1"></script>
 <script src="tech.js?v=1"></script>

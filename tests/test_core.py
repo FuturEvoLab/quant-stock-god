@@ -70,6 +70,52 @@ class Indicators(unittest.TestCase):
                     self.assertEqual(d["series"]["rsi"][:14], [None] * 14)
 
 
+class Portfolio(unittest.TestCase):
+    QUOTES = {"AAPL": {"name": "Apple", "currency": "USD", "price": 200.0, "abs1d": 2.0, "chg1d": 1.0, "spark": [1, 2]},
+              "0700.HK": {"name": "Tencent", "currency": "HKD", "price": 400.0, "abs1d": -4.0, "chg1d": -1.0, "spark": [1]},
+              "HKD=X": {"price": 8.0}}
+
+    def quote(self, sym, *a, **k):
+        if sym not in self.QUOTES:
+            raise s.ApiError(f"找不到代码: {sym}")
+        return self.QUOTES[sym]
+
+    def test_math_and_fx(self):
+        import tempfile
+        old = s.DATA
+        s.DATA = tempfile.mkdtemp()
+        try:
+            s.save_json("positions.json", [{"sym": "AAPL", "shares": 10, "cost": 150.0}, {"sym": "0700.HK", "shares": 100, "cost": 500.0}, {"sym": "NOPE", "shares": 1, "cost": 1}])
+            with mock.patch.object(s, "quote_summary", side_effect=self.quote):
+                p = s.portfolio()
+            by = {r["sym"]: r for r in p["positions"]}
+            a, t = by["AAPL"], by["0700.HK"]
+            self.assertEqual((a["value"], a["cost_total"], a["pnl"], a["day_pnl"]), (2000.0, 1500.0, 500.0, 20.0))
+            self.assertAlmostEqual(a["pnl_pct"], 33.3333, places=3)
+            self.assertEqual((t["value"], t["pnl"], t["day_pnl"], t["currency"]), (40000.0, -10000.0, -400.0, "HKD"))
+            self.assertEqual(t["value_usd"], 5000.0)  # 40000 HKD / 8
+            self.assertAlmostEqual(a["weight"] + t["weight"], 100.0)
+            self.assertEqual(p["usd"]["value"], 7000.0)
+            self.assertEqual(p["usd"]["day_pnl"], 20.0 - 50.0)
+            self.assertEqual([x["currency"] for x in p["totals"]], ["HKD", "USD"])  # 按市值排序
+            self.assertIn("NOPE", p["errors"])
+            self.assertEqual(p["unconverted"], [])
+            self.assertEqual([r["sym"] for r in p["positions"]][:2], ["0700.HK", "AAPL"])  # 按美元市值降序，失败的在最后
+        finally:
+            s.DATA = old
+
+    def test_validation(self):
+        with self.assertRaises(s.ApiError):
+            s.position_from({"sym": "AAPL", "shares": 0, "cost": 1})
+        with self.assertRaises(s.ApiError):
+            s.position_from({"sym": "../x", "shares": 1, "cost": 1})
+        with self.assertRaises(s.ApiError):
+            s.position_from({"sym": "AAPL", "shares": "abc"})
+        it = s.position_from({"sym": "aapl", "shares": "10", "cost": "150.5", "note": "x" * 100, "added": "bad"})
+        self.assertEqual((it["sym"], it["shares"], it["cost"], len(it["note"])), ("AAPL", 10.0, 150.5, 60))
+        self.assertGreater(it["added"], 1_700_000_000)
+
+
 class Digest(unittest.TestCase):
     def test_text(self):
         mk = {"indices": [{"sym": "^GSPC", "price": 5000, "chg1d": 0.84}, {"sym": "^VIX", "price": 15.23, "chg1d": -3}, {"sym": "^HSI", "price": 1, "chg1d": None}],
@@ -171,6 +217,13 @@ class Alerts(unittest.TestCase):
     def test_52w(self):
         self.assertIn("hi52", self.flags({}, new_hi52=True))
         self.assertNotIn("hi52", self.flags({"hi52_alert": False}, new_hi52=True))
+
+    def test_ma_cross_fires_only_on_the_crossing_day(self):
+        self.assertEqual(self.flags({}, ma20=101, ma50=100, ma20_prev=99, ma50_prev=100), ["golden"])
+        self.assertEqual(self.flags({}, ma20=99, ma50=100, ma20_prev=100, ma50_prev=100), ["death"])  # 昨天相等也算穿越
+        self.assertEqual(self.flags({}, ma20=103, ma50=100, ma20_prev=101, ma50_prev=100), [])  # 昨天已在上方
+        self.assertEqual(self.flags({"ma_alert": False}, ma20=101, ma50=100, ma20_prev=99, ma50_prev=100), [])
+        self.assertEqual(self.flags({}, ma20=101, ma50=None, ma20_prev=99, ma50_prev=None), [])  # 历史不足
 
     def test_price_targets_fire_only_on_the_crossing_day(self):
         self.assertEqual(self.flags({"above": 100}, price=101, prev_close=99), ["above"])

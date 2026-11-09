@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8767"))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
@@ -391,7 +391,8 @@ def quote_summary(sym, rng="2y", swr=True):
     y1 = c[-252:]
     hi52, lo52 = max(y1), min(y1)
     prev52 = c[-253:-1] if len(c) >= 253 else None  # 今天之前完整的 252 个交易日；历史不足不判断
-    return {"sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "exchange": d["exchange"],
+    ma = lambda arr, n: sum(arr[-n:]) / n if len(arr) >= n else None  # 均线（金叉 / 死叉提醒用今天和昨天的 20 / 50 日均线）
+    return {"ma20": ma(c, 20), "ma50": ma(c, 50), "ma20_prev": ma(c[:-1], 20), "ma50_prev": ma(c[:-1], 50),"sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "exchange": d["exchange"],
             "price": c[-1], "prev_close": c[-2] if len(c) > 1 else None, "chg1d": chg(c, 1),
             "abs1d": c[-1] - c[-2] if len(c) > 1 else None, "abs1w": c[-1] - c[-6] if len(c) > 5 else None, "abs1m": c[-1] - c[-22] if len(c) > 21 else None, "chg1w": chg(c, 5), "chg1m": chg(c, 21), "chg3m": chg(c, 63),
             "spark": c[-44:], "volume": vol_today, "avg20": avg20, "vol_ratio": (vol_est / avg20) if avg20 and vol_est else None,
@@ -619,16 +620,25 @@ def watch_item_from(b, keep_added=False):
         except ApiError:
             added = None  # 导入文件里这个字段只是“加入时间”，坏了就用现在
     return {"sym": sym, "label": str(b.get("label") or "").strip()[:40], "move_pct": num(b.get("move_pct"), 0, 100), "vol_mult": num(b.get("vol_mult"), 0, 100),
-            "rsi_alert": bool(b.get("rsi_alert", True)), "hi52_alert": bool(b.get("hi52_alert", True)),
+            "rsi_alert": bool(b.get("rsi_alert", True)), "hi52_alert": bool(b.get("hi52_alert", True)), "ma_alert": bool(b.get("ma_alert", True)),
             "above": num(b.get("above"), 0, 1e9), "below": num(b.get("below"), 0, 1e9),
             "added": added or int(time.time())}
 
 
 def import_backup(b):
     """导入导出文件：自选 + 13F 基金列表。merge（默认）只添加本机没有的；replace 整体替换"""
-    wl, ms, replace = b.get("watchlist"), b.get("managers"), bool(b.get("replace"))
+    wl, ms, ps, replace = b.get("watchlist"), b.get("managers"), b.get("positions"), bool(b.get("replace"))
     if not isinstance(wl, list) or len(wl) > 200 or not all(isinstance(x, dict) for x in wl):
         raise ApiError("导入文件格式不正确")
+    pos = []
+    if isinstance(ps, list) and len(ps) <= 200:
+        seen_p = set()
+        for x in ps:
+            if isinstance(x, dict):
+                it = position_from(x)
+                if it["sym"] not in seen_p:
+                    seen_p.add(it["sym"])
+                    pos.append(it)
     items, seen = [], set()
     for x in wl:
         it = watch_item_from(x, keep_added=True)
@@ -651,6 +661,13 @@ def import_backup(b):
         new_items = items if replace else cur + [i for i in items if i["sym"] not in have]
         save_json("watchlist.json", new_items)
         added = len(new_items) if replace else len(new_items) - len(cur)
+        p_added = 0
+        if pos or (replace and isinstance(ps, list)):
+            curp = positions()
+            havep = {c["sym"] for c in curp}
+            new_p = pos if replace else curp + [p for p in pos if p["sym"] not in havep]
+            p_added = len(new_p) if replace else len(new_p) - len(curp)
+            save_json("positions.json", new_p)
         m_added = 0
         if good:
             curm = managers()
@@ -658,7 +675,76 @@ def import_backup(b):
             new_m = good if replace else curm + [g for g in good if g["cik"] not in havem]
             m_added = len(new_m) if replace else len(new_m) - len(curm)
             save_json("managers.json", new_m)
-    return {"watchlist": len(new_items), "added": added, "managers_added": m_added, "replaced": replace}
+    return {"watchlist": len(new_items), "added": added, "managers_added": m_added, "positions_added": p_added, "replaced": replace}
+
+
+# ---- 持仓盈亏：本机记录的持仓（代码、股数、平均成本），用行情算市值、盈亏、当日盈亏和权重；非美元品种按 Yahoo 汇率折成美元合计
+
+def position_from(b):
+    sym = str(b.get("sym") or "").strip().upper()
+    if not sym:
+        raise ApiError("请输入代码")
+    if not re.match(SYM_RE, sym):
+        raise ApiError(f"代码格式不正确: {sym[:20]}")
+    shares = num(b.get("shares"), 0, 1e12)
+    if shares <= 0:
+        raise ApiError("股数必须大于 0")
+    added = b.get("added")
+    try:
+        added = int(num(added, 0, 4e9)) or None
+    except ApiError:
+        added = None
+    return {"sym": sym, "shares": shares, "cost": num(b.get("cost"), 0, 1e9), "note": str(b.get("note") or "").strip()[:60], "added": added or int(time.time())}
+
+
+def positions():
+    """调用方负责持有 _store_lock"""
+    return load_json("positions.json", [])
+
+
+def portfolio(swr=True):
+    with _store_lock:
+        items = positions()
+    jobs = {p["sym"]: POOL.submit(quote_summary, p["sym"], "2y", swr) for p in items}
+    rows = []
+    for p in items:
+        try:
+            q = jobs[p["sym"]].result(timeout=60)
+        except Exception as e:  # noqa: BLE001 — 个别品种失败不影响其他
+            rows.append({**p, "error": str(e)[:160]})
+            continue
+        value, cost_total = p["shares"] * q["price"], p["shares"] * p["cost"]
+        rows.append({**p, "name": q["name"], "currency": q.get("currency") or "USD", "price": q["price"], "chg1d": q["chg1d"],
+                     "value": value, "cost_total": cost_total, "pnl": value - cost_total, "pnl_pct": (value / cost_total - 1) * 100 if cost_total else None,
+                     "day_pnl": p["shares"] * q["abs1d"] if q.get("abs1d") is not None else None, "spark": (q.get("spark") or [])[-22:], "stale": bool(q.get("stale"))})
+    ok = [r for r in rows if not r.get("error")]
+    fx = {"USD": 1.0}  # 1 美元 = 多少该货币（Yahoo 的 HKD=X 等）
+    fx_jobs = {c: POOL.submit(quote_summary, f"{c}=X", "2y", swr) for c in {r["currency"] for r in ok} - {"USD"}}
+    for c, fut in fx_jobs.items():
+        try:
+            fx[c] = fut.result(timeout=60)["price"]
+        except Exception:  # noqa: BLE001 — 汇率取不到就只按币种分列
+            pass
+    totals = {}
+    for r in ok:
+        t = totals.setdefault(r["currency"], {"currency": r["currency"], "value": 0.0, "cost": 0.0, "pnl": 0.0, "day_pnl": 0.0, "n": 0})
+        t["value"] += r["value"]
+        t["cost"] += r["cost_total"]
+        t["pnl"] += r["pnl"]
+        t["day_pnl"] += r["day_pnl"] or 0
+        t["n"] += 1
+    conv = [r for r in ok if r["currency"] in fx and fx[r["currency"]]]
+    usd_value = sum(r["value"] / fx[r["currency"]] for r in conv)
+    usd_cost = sum(r["cost_total"] / fx[r["currency"]] for r in conv)
+    usd_day = sum((r["day_pnl"] or 0) / fx[r["currency"]] for r in conv)
+    for r in ok:
+        r["value_usd"] = r["value"] / fx[r["currency"]] if r["currency"] in fx and fx[r["currency"]] else None
+        r["weight"] = r["value_usd"] / usd_value * 100 if r["value_usd"] is not None and usd_value else None
+    rows.sort(key=lambda r: -(r.get("value_usd") or r.get("value") or 0))
+    usd = {"value": usd_value, "cost": usd_cost, "pnl": usd_value - usd_cost, "pnl_pct": (usd_value / usd_cost - 1) * 100 if usd_cost else None,
+           "day_pnl": usd_day, "day_pct": usd_day / (usd_value - usd_day) * 100 if usd_value - usd_day else None, "n": len(conv)} if conv else None
+    return {"positions": rows, "totals": sorted(totals.values(), key=lambda t: -t["value"]), "usd": usd, "fx": fx,
+            "unconverted": sorted({r["currency"] for r in ok} - set(fx)), "stale": any(r.get("stale") for r in ok), "errors": {r["sym"]: r["error"] for r in rows if r.get("error")}}
 
 
 def watchlist():
@@ -689,6 +775,14 @@ def check_item(item, swr=True):
         flags.append("hi52")
     elif use_52 and q["new_lo52"]:
         flags.append("lo52")
+    # 均线金叉 / 死叉：20 日均线今天上穿 / 下穿 50 日均线（昨天还在另一侧）
+    use_ma = item.get("ma_alert", True)
+    m20, m50, p20, p50 = q.get("ma20"), q.get("ma50"), q.get("ma20_prev"), q.get("ma50_prev")
+    if use_ma and None not in (m20, m50, p20, p50):
+        if p20 <= p50 and m20 > m50:
+            flags.append("golden")
+        elif p20 >= p50 and m20 < m50:
+            flags.append("death")
     # 目标价：只在“今天穿越”时提醒（昨收在目标价另一侧），停在目标价之外不会每天重复；目标价为 0 / 空表示未设置
     above, below = float(item.get("above") or 0), float(item.get("below") or 0)
     price, prev = q.get("price"), q.get("prev_close")
@@ -697,7 +791,7 @@ def check_item(item, swr=True):
             flags.append("above")
         if below > 0 and prev > below >= price:
             flags.append("below")
-    return {**q, "label": item.get("label") or "", "move_pct": move, "vol_mult": mult, "rsi_alert": use_rsi, "hi52_alert": use_52,
+    return {**q, "label": item.get("label") or "", "move_pct": move, "vol_mult": mult, "rsi_alert": use_rsi, "hi52_alert": use_52, "ma_alert": use_ma,
             "above": above or None, "below": below or None, "flags": flags}
 
 
@@ -725,13 +819,13 @@ def refresh_watchlist(swr=True):
 ALERT_TEXT = {
     "zh": {"title": "量化股神 · 异动提醒", "move": "价格异动", "volume": "放量", "vs": "为 20 日均量",
            "rsi_hi": "RSI 进入超买区", "rsi_lo": "RSI 进入超卖区", "hi52": "创 52 周新高", "lo52": "创 52 周新低", "more": "另有 {n} 条异动，打开量化股神查看",
-           "above": "升破目标价", "below": "跌破目标价", "test": "测试通知：后台提醒工作正常"},
+           "above": "升破目标价", "below": "跌破目标价", "golden": "均线金叉（20 日上穿 50 日）", "death": "均线死叉（20 日下穿 50 日）", "test": "测试通知：后台提醒工作正常"},
     "ja": {"title": "量化株神 · 急変アラート", "move": "価格急変", "volume": "出来高急増", "vs": "（20日平均比）",
            "rsi_hi": "RSI が買われ過ぎ圏へ", "rsi_lo": "RSI が売られ過ぎ圏へ", "hi52": "52 週高値を更新", "lo52": "52 週安値を更新", "more": "他に {n} 件の急変。量化株神で確認してください",
-           "above": "目標価格を上抜け", "below": "目標価格を下抜け", "test": "テスト通知：バックグラウンド通知は正常です"},
+           "above": "目標価格を上抜け", "below": "目標価格を下抜け", "golden": "ゴールデンクロス（20 日線が 50 日線を上抜け）", "death": "デッドクロス（20 日線が 50 日線を下抜け）", "test": "テスト通知：バックグラウンド通知は正常です"},
     "en": {"title": "Quant Stock God · Alert", "move": "Price move", "volume": "Volume spike", "vs": "vs 20d avg",
            "rsi_hi": "RSI entered overbought", "rsi_lo": "RSI entered oversold", "hi52": "New 52-week high", "lo52": "New 52-week low", "more": "{n} more alerts — open Quant Stock God",
-           "above": "Crossed above target", "below": "Crossed below target", "test": "Test notification: background alerts are working"},
+           "above": "Crossed above target", "below": "Crossed below target", "golden": "Golden cross (20d over 50d)", "death": "Death cross (20d under 50d)", "test": "Test notification: background alerts are working"},
 }
 _alert = {"last_run": None, "last_error": None, "next_run": 0, "running": False, "skipped": []}
 _alert_lock = threading.Lock()
@@ -2304,7 +2398,7 @@ class Handler(SimpleHTTPRequestHandler):
                     sym = item["sym"]
                     old = next((i for i in items if i["sym"] == sym), None)
                     if old:
-                        old.update({k: item[k] for k in ("label", "move_pct", "vol_mult", "rsi_alert", "hi52_alert", "above", "below")})
+                        old.update({k: item[k] for k in ("label", "move_pct", "vol_mult", "rsi_alert", "hi52_alert", "ma_alert", "above", "below")})
                     else:
                         items.append(item)
                     save_json("watchlist.json", items)
@@ -2316,9 +2410,24 @@ class Handler(SimpleHTTPRequestHandler):
             return items
         if path == "/api/watchlist/refresh":
             return refresh_watchlist()
+        if path == "/api/portfolio":
+            if method in ("POST", "DELETE"):
+                with _store_lock:
+                    items = positions()
+                    if method == "POST":
+                        item = position_from(self.body_json())
+                        old = next((i for i in items if i["sym"] == item["sym"]), None)
+                        if old:
+                            old.update({k: item[k] for k in ("shares", "cost", "note")})
+                        else:
+                            items.append(item)
+                    else:
+                        items = [i for i in items if i["sym"] != q.get("sym")]
+                    save_json("positions.json", items)
+            return portfolio()
         if path == "/api/watchlist/export":
             with _store_lock:
-                return {"app": "quant-stock-god", "version": VERSION, "exported": int(time.time()), "watchlist": watchlist(), "managers": managers()}
+                return {"app": "quant-stock-god", "version": VERSION, "exported": int(time.time()), "watchlist": watchlist(), "managers": managers(), "positions": positions()}
         if path == "/api/watchlist/import" and method == "POST":
             return import_backup(self.body_json())
 
