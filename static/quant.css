@@ -30,6 +30,8 @@
 /* 自选 */
 .q-flag.move { background: color-mix(in srgb, var(--out) 16%, transparent); color: var(--out); }
 .q-flag.volume { background: color-mix(in srgb, var(--q-new) 16%, transparent); color: var(--q-new); }
+.q-flag.above { background: color-mix(in srgb, var(--in) 16%, transparent); color: var(--in); }
+.q-flag.below { background: color-mix(in srgb, var(--out) 16%, transparent); color: var(--out); }
 tr.q-hit td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 tr.q-hit td:first-child { box-shadow: inset 2px 0 0 var(--accent); animation: breathe 5s ease-in-out infinite; }
 #watch-table .row-acts { white-space: nowrap; text-align: right; }

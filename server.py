@@ -27,6 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
+VERSION = "1.1.0"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8767"))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
@@ -371,7 +372,7 @@ def quote_summary(sym, rng="2y", swr=True):
     hi52, lo52 = max(y1), min(y1)
     prev52 = c[-253:-1] if len(c) >= 253 else None  # 今天之前完整的 252 个交易日；历史不足不判断
     return {"sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "exchange": d["exchange"],
-            "price": c[-1], "chg1d": chg(c, 1),
+            "price": c[-1], "prev_close": c[-2] if len(c) > 1 else None, "chg1d": chg(c, 1),
             "abs1d": c[-1] - c[-2] if len(c) > 1 else None, "abs1w": c[-1] - c[-6] if len(c) > 5 else None, "abs1m": c[-1] - c[-22] if len(c) > 21 else None, "chg1w": chg(c, 5), "chg1m": chg(c, 21), "chg3m": chg(c, 63),
             "spark": c[-44:], "volume": vol_today, "avg20": avg20, "vol_ratio": (vol_est / avg20) if avg20 and vol_est else None,
             "vol_projected": vol_est != vol_today, "rsi14": rsi(c[-120:]), "rsi_prev": rsi(c[-121:-1]), "hi52": hi52, "lo52": lo52,
@@ -516,6 +517,55 @@ def market():
     return out
 
 
+# ---------------------------------------------------------------- 跨资产相关性（日收益率的 Pearson 相关系数）
+# 用市场总览已经缓存的 2 年日线算，不额外请求；窗口按交易日数取（20 ≈ 1 个月、60 ≈ 1 季度、250 ≈ 1 年）
+
+CORR_DAYS = (20, 60, 250)
+
+
+def pearson(xs, ys):
+    n = len(xs)
+    if n < 3:
+        return None
+    mx, my = sum(xs) / n, sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    syy = sum((y - my) ** 2 for y in ys)
+    if sxx <= 0 or syy <= 0:
+        return None
+    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (sxx * syy) ** 0.5
+
+
+def corr_matrix(charts, days):
+    """charts: {sym: {"ts": [...], "close": [...]}}。按日期对齐（各市场假日不同，只取大家都有的交易日），
+    取最近 days 天的对数收益率两两算相关系数。返回 (syms, matrix, 实际天数)"""
+    by_day = {}
+    for sym, d in charts.items():
+        by_day[sym] = {datetime.fromtimestamp(t, timezone.utc).date().isoformat(): c for t, c in zip(d["ts"], d["close"]) if c}
+    syms = [s for s in charts if by_day[s]]
+    common = sorted(set.intersection(*(set(by_day[s]) for s in syms))) if syms else []
+    common = common[-(days + 1):]  # 要 days 个收益率需要 days+1 个收盘价
+    if len(common) < 4:
+        raise ApiError("历史数据不足，无法计算相关性")
+    rets = {s: [math.log(by_day[s][d1] / by_day[s][d0]) for d0, d1 in zip(common, common[1:])] for s in syms}
+    matrix = [[1.0 if a == b else pearson(rets[a], rets[b]) for b in syms] for a in syms]
+    return syms, matrix, len(common) - 1
+
+
+def corr(days=60):
+    days = int(days) if int(days) in CORR_DAYS else 60
+    syms = INDICES + COMMODS
+    jobs = {s: POOL.submit(yahoo_chart, s, "2y") for s in syms}
+    charts, errors = {}, {}
+    for s, fut in jobs.items():
+        try:
+            charts[s] = fut.result(timeout=60)
+        except Exception as e:  # noqa: BLE001 — 单个品种失败就不进矩阵
+            errors[s] = str(e)[:160]
+    order, matrix, n = corr_matrix(charts, days)
+    return {"syms": order, "names": [NAMES.get(s, s) for s in order], "days": days, "n": n,
+            "matrix": [[None if v is None else round(v, 3) for v in row] for row in matrix], "errors": errors}
+
+
 # ---------------------------------------------------------------- 自选监控 + 后台异动提醒（macOS 通知）
 
 DEFAULT_WATCH = [
@@ -552,7 +602,16 @@ def check_item(item, swr=True):
         flags.append("hi52")
     elif use_52 and q["new_lo52"]:
         flags.append("lo52")
-    return {**q, "label": item.get("label") or "", "move_pct": move, "vol_mult": mult, "rsi_alert": use_rsi, "hi52_alert": use_52, "flags": flags}
+    # 目标价：只在“今天穿越”时提醒（昨收在目标价另一侧），停在目标价之外不会每天重复；目标价为 0 / 空表示未设置
+    above, below = float(item.get("above") or 0), float(item.get("below") or 0)
+    price, prev = q.get("price"), q.get("prev_close")
+    if prev is not None and price is not None:
+        if above > 0 and prev < above <= price:
+            flags.append("above")
+        if below > 0 and prev > below >= price:
+            flags.append("below")
+    return {**q, "label": item.get("label") or "", "move_pct": move, "vol_mult": mult, "rsi_alert": use_rsi, "hi52_alert": use_52,
+            "above": above or None, "below": below or None, "flags": flags}
 
 
 def refresh_watchlist(swr=True):
@@ -572,13 +631,13 @@ def refresh_watchlist(swr=True):
 ALERT_TEXT = {
     "zh": {"title": "量化股神 · 异动提醒", "move": "价格异动", "volume": "放量", "vs": "为 20 日均量",
            "rsi_hi": "RSI 进入超买区", "rsi_lo": "RSI 进入超卖区", "hi52": "创 52 周新高", "lo52": "创 52 周新低", "more": "另有 {n} 条异动，打开量化股神查看",
-           "test": "测试通知：后台提醒工作正常"},
+           "above": "升破目标价", "below": "跌破目标价", "test": "测试通知：后台提醒工作正常"},
     "ja": {"title": "量化株神 · 急変アラート", "move": "価格急変", "volume": "出来高急増", "vs": "（20日平均比）",
            "rsi_hi": "RSI が買われ過ぎ圏へ", "rsi_lo": "RSI が売られ過ぎ圏へ", "hi52": "52 週高値を更新", "lo52": "52 週安値を更新", "more": "他に {n} 件の急変。量化株神で確認してください",
-           "test": "テスト通知：バックグラウンド通知は正常です"},
+           "above": "目標価格を上抜け", "below": "目標価格を下抜け", "test": "テスト通知：バックグラウンド通知は正常です"},
     "en": {"title": "Quant Stock God · Alert", "move": "Price move", "volume": "Volume spike", "vs": "vs 20d avg",
            "rsi_hi": "RSI entered overbought", "rsi_lo": "RSI entered oversold", "hi52": "New 52-week high", "lo52": "New 52-week low", "more": "{n} more alerts — open Quant Stock God",
-           "test": "Test notification: background alerts are working"},
+           "above": "Crossed above target", "below": "Crossed below target", "test": "Test notification: background alerts are working"},
 }
 _alert = {"last_run": None, "last_error": None, "next_run": 0, "running": False, "skipped": []}
 _alert_lock = threading.Lock()
@@ -651,7 +710,8 @@ def run_alerts():
                     continue
                 marks[key] = int(time.time())
                 found.append({"ts": int(time.time()), "sym": r["sym"], "label": r["label"], "type": f, "price": r["price"],
-                              "chg1d": r["chg1d"], "vol_ratio": r["vol_ratio"], "rsi14": r["rsi14"], "currency": r["currency"]})
+                              "chg1d": r["chg1d"], "vol_ratio": r["vol_ratio"], "rsi14": r["rsi14"], "currency": r["currency"],
+                              "target": r.get(f) if f in ("above", "below") else None})
         cutoff = time.time() - 10 * 86400
         marks = {k: v for k, v in marks.items() if v > cutoff}
         with _store_lock:
@@ -666,6 +726,8 @@ def run_alerts():
                 text = f"{who} {T['volume']} ×{r['vol_ratio']:.1f} {T['vs']} · {r['chg1d']:+.2f}%"
             elif r["type"] in ("rsi_hi", "rsi_lo"):
                 text = f"{who} {T[r['type']]} · RSI {r['rsi14']:.0f} · {r['price']:,.2f}"
+            elif r["type"] in ("above", "below"):
+                text = f"{who} {T[r['type']]} {r['target']:,.2f} · {r['price']:,.2f} ({r['chg1d']:+.2f}%)"
             else:
                 text = f"{who} {T[r['type']]} · {r['price']:,.2f} ({r['chg1d']:+.2f}%)"
             notify(T["title"], text, st["sound"])
@@ -730,7 +792,7 @@ def sec_ua():
     email = config().get("sec_email", "").strip()
     if not email:
         raise ApiError("SEC EDGAR 需要联系邮箱：请在“设置”页填写（只用于 SEC 要求的 User-Agent，只保存在本机）")
-    return f"QuantStockGod/1.0 personal-research {email}"
+    return f"QuantStockGod/{VERSION} personal-research {email}"
 
 
 def sec_get(url, raw=False, ttl=3600):
@@ -1876,7 +1938,7 @@ def code_version():
     def newest(paths):
         return max((os.path.getmtime(p) for p in paths if os.path.exists(p)), default=0)
     static = [os.path.join(dp, f) for dp, _, fs in os.walk(STATIC) for f in fs if f.endswith((".js", ".css", ".html")) and not f.startswith("._")]
-    return {"started": int(STARTED), "server_mtime": int(newest([os.path.join(ROOT, "server.py")])), "static_mtime": int(newest(static)),
+    return {"version": VERSION, "started": int(STARTED), "server_mtime": int(newest([os.path.join(ROOT, "server.py")])), "static_mtime": int(newest(static)),
             "port": PORT, "platform": sys.platform, "autostart": autostart_status(),
             "log": os.path.expanduser("~/Library/Logs/QuantStockGod/server.log") if sys.platform == "darwin" and autostart_status() else os.path.join(DATA, "server.log")}
 
@@ -2013,6 +2075,8 @@ class Handler(SimpleHTTPRequestHandler):
                 except Exception:  # noqa: BLE001 — 个别品种失败不影响其他
                     pass
             return out
+        if path == "/api/corr":
+            return corr(num(q.get("days"), 0, 1000, 60))
         if path == "/api/status":
             return source_status()
         if path == "/api/version":
@@ -2033,10 +2097,11 @@ class Handler(SimpleHTTPRequestHandler):
                         raise ApiError(f"代码格式不正确: {sym[:20]}")
                     item = {"sym": sym, "label": str(b.get("label") or "").strip()[:40], "move_pct": num(b.get("move_pct"), 0, 100),
                             "vol_mult": num(b.get("vol_mult"), 0, 100), "rsi_alert": bool(b.get("rsi_alert", True)),
-                            "hi52_alert": bool(b.get("hi52_alert", True)), "added": int(time.time())}
+                            "hi52_alert": bool(b.get("hi52_alert", True)), "above": num(b.get("above"), 0, 1e9), "below": num(b.get("below"), 0, 1e9),
+                            "added": int(time.time())}
                     old = next((i for i in items if i["sym"] == sym), None)
                     if old:
-                        old.update({k: item[k] for k in ("label", "move_pct", "vol_mult", "rsi_alert", "hi52_alert")})
+                        old.update({k: item[k] for k in ("label", "move_pct", "vol_mult", "rsi_alert", "hi52_alert", "above", "below")})
                     else:
                         items.append(item)
                     save_json("watchlist.json", items)

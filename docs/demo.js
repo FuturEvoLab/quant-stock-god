@@ -47,6 +47,7 @@
     const path = u.pathname.slice(at);
     let key = path;
     if (path === "/api/detail") key = `detail|${(u.searchParams.get("sym") || "").toUpperCase()}`;
+    if (path === "/api/corr") key = `corr|${u.searchParams.get("days") || 60}`;
     if (path === "/api/version") return reply({ ...data[key], started: Math.floor(Date.now() / 1000) }); // 不显示“代码已更新”提示条
     return key in data ? reply(data[key]) : reply({ error: T.err }, 400);
   };

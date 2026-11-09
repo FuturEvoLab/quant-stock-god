@@ -70,6 +70,31 @@ class Indicators(unittest.TestCase):
                     self.assertEqual(d["series"]["rsi"][:14], [None] * 14)
 
 
+class Correlation(unittest.TestCase):
+    def chart(self, closes, start=0):
+        return {"ts": [1_700_000_000 + (start + i) * 86400 for i in range(len(closes))], "close": closes}
+
+    def test_pearson(self):
+        self.assertAlmostEqual(s.pearson([1, 2, 3, 4], [2, 4, 6, 8]), 1.0)
+        self.assertAlmostEqual(s.pearson([1, 2, 3, 4], [8, 6, 4, 2]), -1.0)
+        self.assertIsNone(s.pearson([1, 1, 1, 1], [1, 2, 3, 4]))  # 常数序列没有相关性
+        self.assertIsNone(s.pearson([1, 2], [1, 2]))
+
+    def test_matrix_aligns_dates_and_is_symmetric(self):
+        up = [100 * math.exp(math.sin(i) * 0.02 + i * 0.001) for i in range(30)]  # 有波动的走势
+        down = [1e4 / x for x in up]  # 倒数：对数收益率正好相反
+        # 第三个品种少一天（假日），对齐后仍能算
+        syms, m, n = s.corr_matrix({"A": self.chart(up), "B": self.chart(down), "C": self.chart(up[1:], start=1)}, 20)
+        self.assertEqual(syms, ["A", "B", "C"])
+        self.assertEqual(n, 20)
+        self.assertAlmostEqual(m[0][1], -1.0)
+        self.assertAlmostEqual(m[0][2], 1.0)
+        self.assertEqual(m[1][2], m[2][1])
+        self.assertEqual(m[0][0], 1.0)
+        with self.assertRaises(s.ApiError):
+            s.corr_matrix({"A": self.chart([1, 2, 3])}, 20)
+
+
 class Alerts(unittest.TestCase):
     def quote(self, **kw):
         base = {"chg1d": 0.5, "vol_ratio": 1.0, "rsi14": 50, "rsi_prev": 50, "new_hi52": False, "new_lo52": False}
@@ -92,6 +117,19 @@ class Alerts(unittest.TestCase):
     def test_52w(self):
         self.assertIn("hi52", self.flags({}, new_hi52=True))
         self.assertNotIn("hi52", self.flags({"hi52_alert": False}, new_hi52=True))
+
+    def test_price_targets_fire_only_on_the_crossing_day(self):
+        self.assertEqual(self.flags({"above": 100}, price=101, prev_close=99), ["above"])
+        self.assertEqual(self.flags({"above": 100}, price=100, prev_close=99), ["above"])  # 正好到达也算
+        self.assertEqual(self.flags({"above": 100}, price=103, prev_close=101), [])  # 昨天已在上方，不重复
+        self.assertEqual(self.flags({"below": 50}, price=49, prev_close=51), ["below"])
+        self.assertEqual(self.flags({"below": 50}, price=48, prev_close=49), [])
+        self.assertEqual(self.flags({"above": 100, "below": 50}, price=70, prev_close=71), [])
+        self.assertEqual(self.flags({"above": 0, "below": None}, price=101, prev_close=99), [])  # 0 / 空 = 未设置
+        self.assertEqual(self.flags({"above": 100}, price=101), [])  # 没有昨收（新上市）不判断
+        with mock.patch.object(s, "quote_summary", return_value=self.quote(price=1, prev_close=1)):
+            r = s.check_item({"sym": "X", "above": 100, "below": 0})
+        self.assertEqual((r["above"], r["below"]), (100.0, None))
 
     def run_with_row(self, changes):
         now = 1772409600

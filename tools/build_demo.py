@@ -71,6 +71,9 @@ def record():
             data[f"detail|{sym}"] = s.detail(sym)
         except Exception as e:  # noqa: BLE001 — 个别品种失败就不放进演示
             print("  跳过", sym, e)
+    print("相关性…")
+    for days in s.CORR_DAYS:
+        data[f"corr|{days}"] = s.corr(days)
     print("COT / EIA / 宏观…")
     data["/api/cot"] = s.cot()
     data["/api/eia"] = s.eia()

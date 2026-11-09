@@ -29,8 +29,8 @@ Watch US and Hong Kong stocks, indices, rates, the dollar, gold, oil and other c
 
 | Module | What it does |
 |---|---|
-| Market overview | Fear & Greed (CNN, or a local composite when CNN is unavailable), VIX, S&P 500, Nasdaq, Hang Seng, Nikkei 225, US 10Y, the dollar index, plus gold, silver, WTI, Brent, copper and natgas futures. Each shows 1D / 1W / 1M changes and a sparkline. An objective readout is generated automatically, alongside the Treasury yield curve and the 10Y−3M / 10Y−2Y spreads. |
-| Watchlist | US stocks, HK stocks (`0700.HK`), futures (`GC=F`) and indices (`^HSI`). Price moves, volume versus the 20-day average, RSI crossing 70/30 and 52-week highs/lows are checked in the background, with macOS / Windows notifications. |
+| Market overview | Fear & Greed (CNN, or a local composite when CNN is unavailable), VIX, S&P 500, Nasdaq, Hang Seng, Nikkei 225, US 10Y, the dollar index, plus gold, silver, WTI, Brent, copper and natgas futures. Each shows 1D / 1W / 1M changes and a sparkline. An objective readout is generated automatically, alongside the Treasury yield curve and the 10Y−3M / 10Y−2Y spreads. A cross-asset correlation heatmap (Pearson correlation of daily returns over 1 month / 1 quarter / 1 year) shows how the indices, rates, the dollar and commodities have been moving relative to each other. |
+| Watchlist | US stocks, HK stocks (`0700.HK`), futures (`GC=F`) and indices (`^HSI`). Price moves, volume versus the 20-day average, RSI crossing 70/30 and 52-week highs/lows are checked in the background, with macOS / Windows notifications. Each symbol can also carry price targets: a notification is sent on the day the price crosses above or below the level. |
 | Symbol detail | Close chart with 20/50/200-day averages, volume, RSI(14), volatility, max drawdown and objective technical notes (no buy/sell calls). |
 | Smart money (SEC EDGAR) | **Form 4:** open-market insider purchases (code P), with 30/90-day returns, excess return vs the S&P 500 and per-insider hit rates. **13F:** quarter-over-quarter new / added / reduced / exited positions of well-known funds, drawn as a fund ↔ stock graph. |
 | Commodity positioning | CFTC Commitments of Traders managed-money net positions with their 3-year percentile, and EIA weekly inventories (crude, gasoline, distillate, Cushing, natgas) versus the 5-year seasonal range. |
@@ -79,7 +79,7 @@ The demo in `docs/` is a static copy of the UI that answers its API calls from a
 python3 -m unittest discover tests
 ```
 
-There are 40 offline tests (no network, no notifications). GitHub Actions runs them on every push (Ubuntu with Python 3.9 and 3.12, and macOS).
+There are 43 offline tests (no network, no notifications). GitHub Actions runs them on every push (Ubuntu with Python 3.9 and 3.12, and macOS).
 
 ## License and contact
 

@@ -6,7 +6,7 @@ const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const getVar = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
 const state = { watch: [], rows: [], cfg: {} };
-const FLAG_TEXT = { move: "价格异动", volume: "放量", rsi_hi: "RSI 超买", rsi_lo: "RSI 超卖", hi52: "52 周新高", lo52: "52 周新低" };
+const FLAG_TEXT = { move: "价格异动", volume: "放量", rsi_hi: "RSI 超买", rsi_lo: "RSI 超卖", hi52: "52 周新高", lo52: "52 周新低", above: "升破目标价", below: "跌破目标价" };
 
 // ---------------------------------------------------------------- 工具函数
 
@@ -194,7 +194,7 @@ function renderWatch() {
           <td class="num mono ${r.rsi14 >= 70 ? "down" : r.rsi14 <= 30 ? "up" : ""}">${r.rsi14 != null ? r.rsi14.toFixed(0) : "—"}</td>
           <td>${r.pos52 != null ? `<div class="q-r52" title="${fmtPx(r.lo52)} – ${fmtPx(r.hi52)}"><i style="left:${r.pos52.toFixed(1)}%"></i></div>` : `<span class="muted">—</span>`}</td>
           <td class="spark-td">${sparkSvg(r.spark, (r.chg1m ?? 0) >= 0 ? IN : OUT, 120, 30)}</td>
-          <td class="num muted">±${w.move_pct || 0}% · ×${w.vol_mult || 0}${w.rsi_alert !== false ? " · RSI" : ""}${w.hi52_alert !== false ? " · 52W" : ""}</td>
+          <td class="num muted" translate="no">±${w.move_pct || 0}% · ×${w.vol_mult || 0}${w.rsi_alert !== false ? " · RSI" : ""}${w.hi52_alert !== false ? " · 52W" : ""}${w.above ? ` · ≥${fmtPx(w.above)}` : ""}${w.below ? ` · ≤${fmtPx(w.below)}` : ""}</td>
           <td>${r.error ? `<span class="badge no" title="${esc(r.error)}">获取失败</span>` : flags || `<span class="muted">正常</span>`}${r.stale ? ` <span class="badge">缓存</span>` : ""}</td>
           <td class="row-acts"><button type="button" class="small ghost" data-wedit="${esc(w.sym)}">修改</button><button type="button" class="small ghost" data-wdel="${esc(w.sym)}">删除</button></td></tr>`;
       }).join("")
@@ -203,10 +203,10 @@ function renderWatch() {
 $("#watch-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const body = { sym: $("#w-sym").value, label: $("#w-label").value, move_pct: +$("#w-move").value, vol_mult: +$("#w-vol").value,
-    rsi_alert: $("#w-rsi").checked, hi52_alert: $("#w-52").checked };
+    rsi_alert: $("#w-rsi").checked, hi52_alert: $("#w-52").checked, above: +$("#w-above").value || 0, below: +$("#w-below").value || 0 };
   try {
     state.watch = await api("/api/watchlist", { method: "POST", body });
-    $("#w-sym").value = $("#w-label").value = "";
+    $("#w-sym").value = $("#w-label").value = $("#w-above").value = $("#w-below").value = "";
     toast("已保存");
   } catch (err) { toast(err.message, 4000); }
   await loadWatch();
@@ -222,6 +222,7 @@ $("#watch-table").addEventListener("click", async (e) => {
     const w = state.watch.find((x) => x.sym === ed.dataset.wedit);
     $("#w-sym").value = w.sym; $("#w-label").value = w.label || ""; $("#w-move").value = w.move_pct; $("#w-vol").value = w.vol_mult;
     $("#w-rsi").checked = w.rsi_alert !== false; $("#w-52").checked = w.hi52_alert !== false;
+    $("#w-above").value = w.above || ""; $("#w-below").value = w.below || "";
     $("#w-sym").focus();
   }
 });
@@ -248,7 +249,7 @@ function renderAlerts(st) {
   $("#al-hist").innerHTML = h.length
     ? `<div class="section-title">最近提醒</div>` + h.slice(0, 8).map((r) => `<div class="al-row ${r.chg1d >= 0 ? "in" : "out"}"><span class="mono">${fmtTime(r.ts).slice(5)}</span><b class="mono">${esc(r.sym)}</b>
         <span class="badge q-flag ${r.type}">${FLAG_TEXT[r.type] || r.type}</span><b class="mk-chg ${updn(r.chg1d)}">${pct(r.chg1d)}</b>
-        <span class="muted">${fmtPx(r.price)} ${esc(r.currency || "")}${r.type === "volume" && r.vol_ratio ? ` · ×${r.vol_ratio.toFixed(1)}` : ""}${r.type?.startsWith("rsi") && r.rsi14 != null ? ` · RSI ${r.rsi14.toFixed(0)}` : ""}</span></div>`).join("")
+        <span class="muted">${fmtPx(r.price)} ${esc(r.currency || "")}${r.type === "volume" && r.vol_ratio ? ` · ×${r.vol_ratio.toFixed(1)}` : ""}${r.type?.startsWith("rsi") && r.rsi14 != null ? ` · RSI ${r.rsi14.toFixed(0)}` : ""}${(r.type === "above" || r.type === "below") && r.target != null ? ` · ${r.type === "above" ? "≥" : "≤"}${fmtPx(r.target)}` : ""}</span></div>`).join("")
     : `<div class="muted">还没有提醒记录。</div>`;
 }
 async function loadAlerts(body) {
@@ -438,6 +439,7 @@ async function checkVersion() {
   let v;
   try { v = await api("/api/version"); } catch { return; }
   svc.info = v;
+  if (v.version) $(".brand-sub i").textContent = "v" + v.version.replace(/\.0$/, "");  // 侧栏显示服务端版本号
   if (svc.pageStatic == null) svc.pageStatic = v.static_mtime;
   const bar = $("#upd-bar"), msgs = [];
   if (v.server_mtime > v.started + 1) msgs.push(`<span>服务端代码已更新，重启后生效</span><button type="button" class="small primary" data-svc="restart">重启服务</button>`);
@@ -449,7 +451,8 @@ function renderSvc() {
   const v = svc.info;
   if (!v) return;
   const os = v.platform === "darwin" ? "macOS" : v.platform.startsWith("win") ? "Windows" : v.platform;
-  $("#svc-info").innerHTML = `<tr><td>地址</td><td class="mono" translate="no">http://127.0.0.1:${v.port}</td></tr>
+  $("#svc-info").innerHTML = `<tr><td>版本</td><td class="mono" translate="no">v${esc(v.version || "1.0")}</td></tr>
+    <tr><td>地址</td><td class="mono" translate="no">http://127.0.0.1:${v.port}</td></tr>
     <tr><td>启动于</td><td>${fmtTime(v.started)}</td></tr>
     <tr><td>开机自启</td><td>${v.autostart ? `<span class="badge ok">已开启</span>` : `<span class="badge">未开启</span> <span class="muted">双击项目文件夹里的“Enable-Autostart-${os === "Windows" ? "Windows.bat" : "macOS.command"}”</span>`}</td></tr>
     <tr><td>日志</td><td class="mono" translate="no">${esc(v.log)}</td></tr>`;
