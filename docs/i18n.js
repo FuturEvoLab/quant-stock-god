@@ -556,6 +556,12 @@ const ENTRIES = [
   ["美国能源信息署：原油 / 天然气库存周报。免费注册：", "米エネルギー情報局：原油 / 天然ガス在庫週報。無料登録：", "US Energy Information Administration: weekly crude / natgas inventories. Free sign-up:"],
   ["实时报价和公司新闻（免费档）。注册：", "リアルタイム気配と企業ニュース（無料枠）。登録：", "Real-time quotes and company news (free tier). Sign up:"],
   ["保存设置", "設定を保存", "Save settings"],
+  // ---- v1.5：详情页快捷按钮
+  ["记录持仓", "保有を記録", "Add position"],
+  ["添加到自选", "ウォッチリストに追加", "Add to watchlist"],
+  ["在量化实验室里回测这个品种", "この銘柄をクオンツラボでバックテスト", "Backtest this symbol in Quant Lab"],
+  ["把代码填进自选表单", "コードをウォッチリストのフォームに入力", "Put the symbol into the watchlist form"],
+  ["把代码填进持仓表单", "コードを保有のフォームに入力", "Put the symbol into the position form"],
   // ---- v1.5：预测检验
   ["预测检验", "予測の検証", "Prediction check"],
   ["三个角度看\"历史上出现这种情况之后发生了什么\"：历史相似情形之后 5 / 20 日的收益分布；只用价格特征的逻辑回归模型在最近一年样本外的命中率（和\"一直猜多数方向\"的基准对比）；按月份、星期的季节性。每一项都放在基准旁边，接近基准就说明没有可利用的规律。",

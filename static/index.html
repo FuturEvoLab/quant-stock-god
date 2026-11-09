@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="market.css?v=3">
 <link rel="stylesheet" href="smart.css?v=2">
 <link rel="stylesheet" href="gold.css?v=1">
-<link rel="stylesheet" href="quant.css?v=8">
+<link rel="stylesheet" href="quant.css?v=9">
 <script src="boot.js?v=1"></script>
 </head>
 <body>
@@ -544,7 +544,13 @@
 <div id="toast" class="toast"></div>
 <div id="detail" class="dt-overlay" hidden role="dialog" aria-modal="true">
   <div class="dt-panel card">
-    <div class="dt-head"><div id="dt-title" class="dt-title"></div><button type="button" class="small ghost" data-dt-close aria-label="关闭">✕</button></div>
+    <div class="dt-head"><div id="dt-title" class="dt-title"></div>
+      <div class="dt-actions">
+        <button type="button" class="small ghost" data-dt-act="quant" title="在量化实验室里回测这个品种">量化实验室</button>
+        <button type="button" class="small ghost" data-dt-act="watch" title="把代码填进自选表单">添加到自选</button>
+        <button type="button" class="small ghost" data-dt-act="portfolio" title="把代码填进持仓表单">记录持仓</button>
+        <button type="button" class="small ghost" data-dt-close aria-label="关闭">✕</button>
+      </div></div>
     <div id="dt-body"></div>
   </div>
 </div>
@@ -568,7 +574,7 @@
 <script src="corr.js?v=1"></script>
 <script src="smart.js?v=3"></script>
 <script src="cot.js?v=3"></script>
-<script src="detail.js?v=3"></script>
+<script src="detail.js?v=4"></script>
 <script src="portfolio.js?v=1"></script>
 <script src="quant-lab.js?v=2"></script>
 <script src="macro.js?v=2"></script>

@@ -111,6 +111,7 @@ body.dt-open { overflow: hidden; }
 @keyframes dt-in { from { opacity: 0; } }
 .dt-panel { width: min(880px, 100%); margin: 0; border-color: var(--border-strong); }
 .dt-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+.dt-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 .dt-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; font-size: 16px; }
 .dt-px { font: 700 22px var(--hud, var(--font)); }
 .dt-title em { font: 600 13px var(--mono); font-style: normal; }
