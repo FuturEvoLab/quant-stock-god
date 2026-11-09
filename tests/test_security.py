@@ -103,5 +103,36 @@ class Security(unittest.TestCase):
         self.assertEqual(s.parse_xml("<rss><item><title>ok</title></item></rss>").find("item/title").text, "ok")
 
 
+class RemoteBody(unittest.TestCase):
+    """远程响应的 gzip 解压和大小限制（不联网，用假的响应对象）"""
+
+    class Resp:
+        def __init__(self, body, enc=None):
+            self.body, self.headers = body, {"Content-Encoding": enc} if enc else {}
+
+        def read(self, n):
+            return self.body[:n]
+
+    def test_plain_and_gzip(self):
+        import gzip
+        self.assertEqual(s.read_body(self.Resp(b'{"a":1}')), b'{"a":1}')
+        self.assertEqual(s.read_body(self.Resp(gzip.compress(b'{"a":1}'), "gzip")), b'{"a":1}')
+
+    def test_size_limits(self):
+        import gzip
+        with self.assertRaises(s.ApiError):
+            s.read_body(self.Resp(b"x" * 2001), limit=2000)
+        bomb = gzip.compress(b"0" * 5_000_000)  # 压缩后只有几 KB，解压后远超限制
+        self.assertLess(len(bomb), 2000 * 10)
+        with self.assertRaises(s.ApiError):
+            s.read_body(self.Resp(bomb, "gzip"), limit=100_000)
+
+    def test_bad_encoding(self):
+        with self.assertRaises(s.ApiError):
+            s.read_body(self.Resp(b"not gzip", "gzip"))
+        with self.assertRaises(s.ApiError):
+            s.read_body(self.Resp(b"x", "br"))
+
+
 if __name__ == "__main__":
     unittest.main()

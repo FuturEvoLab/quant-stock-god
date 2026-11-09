@@ -79,7 +79,7 @@ The demo in `docs/` is a static copy of the UI that answers its API calls from a
 python3 -m unittest discover tests
 ```
 
-There are 35 offline tests (no network, no notifications). GitHub Actions runs them on every push (Ubuntu with Python 3.9 and 3.12, and macOS).
+There are 38 offline tests (no network, no notifications). GitHub Actions runs them on every push (Ubuntu with Python 3.9 and 3.12, and macOS).
 
 ## License and contact
 

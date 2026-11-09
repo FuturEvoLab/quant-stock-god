@@ -8,6 +8,7 @@
 
 import bisect
 import email.utils
+import functools
 import html
 import math
 import json
@@ -21,6 +22,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -124,29 +126,55 @@ def parse_xml(text):
     return ET.fromstring(re.sub(r"^\s*<\?xml[^>]*\?>", "", text))  # 去掉编码声明后按已解码的文本解析
 
 
-def http_get(url, headers=None, ttl=120, raw=False, timeout=30):
+def read_body(resp, limit=MAX_REMOTE_BYTES):
+    """读取响应体并按需解压 gzip。压缩前、解压后都限制大小，防止“压缩炸弹”占满内存"""
+    too_big = ApiError(f"远程数据过大（超过 {limit // 1_000_000} MB）")
+    body = resp.read(limit + 1)
+    if len(body) > limit:  # 数据源被劫持或出错时可能返回超大内容，直接拒绝
+        raise too_big
+    enc = (resp.headers.get("Content-Encoding") or "").strip().lower()
+    if enc in ("gzip", "x-gzip"):
+        d = zlib.decompressobj(zlib.MAX_WBITS | 16)
+        try:
+            body = d.decompress(body, limit + 1)
+        except zlib.error as e:
+            raise ApiError(f"gzip 解压失败: {e}")
+        if len(body) > limit or d.unconsumed_tail:
+            raise too_big
+    elif enc not in ("", "identity"):
+        raise ApiError(f"不支持的内容编码: {enc[:20]}")
+    return body
+
+
+def http_get(url, headers=None, ttl=120, raw=False, timeout=30, cache=True):
+    """cache=False：调用方自己缓存解析后的结果（如 Yahoo 行情），这里不再在内存里多存一份原始响应"""
     now = time.time()
     ckey = re.sub(r"(api_key=)[^&]+", r"\1***", url)  # 内存缓存的键里不保留 API Key
-    with _cache_lock:
-        hit = _cache.get(ckey)
-        if hit and now - hit[0] < ttl:
-            return hit[1]
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*", **(headers or {})})
+    if cache:
+        with _cache_lock:
+            hit = _cache.get(ckey)
+            if hit and now - hit[0] < ttl:
+                return hit[1]
+    # 请求 gzip：Yahoo 多年日线、EIA、SEC、RSS 这类 JSON / XML 文本通常能压缩到原来的 1/5 ~ 1/10
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*", "Accept-Encoding": "gzip", **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read(MAX_REMOTE_BYTES + 1)
-        if len(body) > MAX_REMOTE_BYTES:  # 数据源被劫持或出错时可能返回超大内容，直接拒绝，避免占满内存
-            raise ApiError(f"远程数据过大（超过 {MAX_REMOTE_BYTES // 1_000_000} MB）")
+            body = read_body(resp)
     except urllib.error.HTTPError as e:
-        raise ApiError(f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:160]}")
+        try:
+            msg = read_body(e, 64_000).decode("utf-8", "replace")
+        except (ApiError, OSError):
+            msg = ""
+        raise ApiError(f"HTTP {e.code}: {msg[:160]}")
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise ApiError(f"网络错误: {getattr(e, 'reason', e)}")
     data = body.decode("utf-8", "replace") if raw else json.loads(body.decode("utf-8"))
-    with _cache_lock:
-        _cache[ckey] = (now, data)
-        if len(_cache) > 600:
-            for k, _ in sorted(_cache.items(), key=lambda kv: kv[1][0])[:200]:
-                del _cache[k]
+    if cache:
+        with _cache_lock:
+            _cache[ckey] = (now, data)
+            if len(_cache) > 600:
+                for k, _ in sorted(_cache.items(), key=lambda kv: kv[1][0])[:200]:
+                    del _cache[k]
     return data
 
 
@@ -246,7 +274,7 @@ def _yahoo_fetch(sym, url, disk_key, old, ttl):
     for host in ("query1", "query2"):
         yahoo_limiter.wait()
         try:
-            data = http_get(url.replace("query1", host), ttl=ttl, timeout=12)
+            data = http_get(url.replace("query1", host), ttl=ttl, timeout=12, cache=False)  # 解析结果另有缓存，原始响应不必常驻内存
             break
         except ApiError as e:
             err = e
@@ -352,7 +380,12 @@ def detail(sym):
         raise ApiError(f"没有行情数据: {sym}")
     ma = {n: sma(c, n) for n in (20, 50, 200)}
     rets = [c[i] / c[i - 1] - 1 for i in range(1, len(c)) if c[i - 1]]
-    vol = lambda r: (sum((x - sum(r) / len(r)) ** 2 for x in r) / (len(r) - 1)) ** 0.5 * 252 ** 0.5 * 100 if len(r) > 2 else None
+
+    def vol(r):  # 年化波动率（%）
+        if len(r) <= 2:
+            return None
+        mean = sum(r) / len(r)
+        return (sum((x - mean) ** 2 for x in r) / (len(r) - 1)) ** 0.5 * 252 ** 0.5 * 100
     y1 = c[-252:]
     peak, mdd = y1[0], 0.0
     for x in y1:
@@ -683,7 +716,7 @@ def sec_ua():
 
 
 def sec_get(url, raw=False, ttl=3600):
-    headers = {"User-Agent": sec_ua(), "Accept-Encoding": "identity"}
+    headers = {"User-Agent": sec_ua()}
     with _cache_lock:
         hit = _cache.get(url)
     if hit and time.time() - hit[0] < ttl:
@@ -1360,7 +1393,7 @@ def fetch_feed(f):
     name = cache_name("news", f["id"])
 
     def fetch():
-        text = http_get(f["url"], ttl=900, raw=True, timeout=20)
+        text = http_get(f["url"], ttl=900, raw=True, timeout=20, cache=False)  # 解析结果存在磁盘缓存里
         root = parse_xml(text)
         items = []
         for it in root.iter("item"):
@@ -1395,7 +1428,10 @@ def fetch_feed(f):
         raise
 
 
+@functools.lru_cache(maxsize=8192)
 def classify(title):
+    """同一标题在 72 小时窗口里会被反复分类（网页刷新、后台记录、新闻提醒），结果只和标题有关，缓存起来。
+    返回值是共享的缓存对象，调用方不要修改它"""
     mentioned = [a for a, r in ASSET_RE.items() if r.search(title)]
     drivers, effects = [], {}
     for r in NEWS_RULES:
@@ -1542,7 +1578,9 @@ for _c in TECH_TOPICS:
 TECH_CO_RE = [(t, n, re.compile(p, re.I)) for t, n, p in TECH_COMPANIES]
 
 
+@functools.lru_cache(maxsize=8192)
 def tech_classify(title):
+    """同 classify：结果只取决于标题，缓存后返回共享对象，调用方不要修改"""
     cos = [{"ticker": t, "name": n} for t, n, r in TECH_CO_RE if r.search(title)]
     topics = [c["id"] for c in TECH_TOPICS if c["re"].search(title)]
     tones = [c["tone"] for c in TECH_TOPICS if c["id"] in topics and c["tone"]]
