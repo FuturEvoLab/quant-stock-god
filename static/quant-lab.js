@@ -2,7 +2,7 @@
 // 两者都是对历史数据的统计描述：回测说明“这条规则在过去这段时间表现如何”，统计区间说明“按过去的波动幅度，N 天后价格大概率落在哪”。
 // 不是预测，不构成投资建议。
 
-const ql = { bt: null, fc: null, sg: null };
+const ql = { bt: null, fc: null, sg: null, seq: 0 };
 const STATE_TEXT = { trend: { above: "200 日均线上方", below: "200 日均线下方" }, mom: { up: "20 日上涨", down: "20 日下跌" }, rsi: { oversold: "RSI 超卖", neutral: "RSI 中性", overbought: "RSI 超买" }, vol: { high: "波动偏高", normal: "波动常规", low: "波动偏低" } };
 const MATCH_TEXT = { trend: "趋势", mom: "动量", rsi: "RSI" };
 const FEAT_TEXT = { r5: "5 日收益", r20: "20 日收益", r60: "60 日收益", rsi: "RSI", ma200: "相对 200 日均线", volr: "波动率变化", pos52: "52 周位置" };
@@ -36,13 +36,15 @@ async function runQuant() {
   $("#ql-bt-sub").textContent = $("#ql-fc-sub").textContent = $("#ql-sg-sub").textContent = "";
   const btn = $("#ql-form button.primary");
   btn.disabled = true;
+  const seq = ++ql.seq;  // 请求期间又点了别的代码（快速选择没有禁用）：只保留最后一次的结果
   const [bt, fc, sg] = await Promise.allSettled([
     api(`/api/backtest?sym=${encodeURIComponent(sym)}&strategy=${strategy}&range=${range}&fee=${fee}`),
     api(`/api/forecast?sym=${encodeURIComponent(sym)}${target ? `&target=${target}` : ""}`),
     api(`/api/signals?sym=${encodeURIComponent(sym)}`),
   ]);
-  if (sg.status === "fulfilled") { ql.sg = sg.value; renderSignals(); } else { ql.sg = null; $("#ql-sg").innerHTML = `<div class="err">${esc(sg.reason.message)}</div>`; }
   btn.disabled = false;
+  if (seq !== ql.seq) return;
+  if (sg.status === "fulfilled") { ql.sg = sg.value; renderSignals(); } else { ql.sg = null; $("#ql-sg").innerHTML = `<div class="err">${esc(sg.reason.message)}</div>`; }
   if (bt.status === "fulfilled") { ql.bt = bt.value; renderBacktest(); } else { ql.bt = null; $("#ql-bt").innerHTML = `<div class="err">${esc(bt.reason.message)}</div>`; }
   if (fc.status === "fulfilled") { ql.fc = fc.value; renderForecast(); } else { ql.fc = null; $("#ql-fc").innerHTML = `<div class="err">${esc(fc.reason.message)}</div>`; }
 }

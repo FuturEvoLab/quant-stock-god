@@ -333,7 +333,7 @@ def _yahoo_fetch(sym, url, disk_key, old, ttl):
     meta = r.get("meta", {})
     q = (r.get("indicators", {}).get("quote") or [{}])[0]
     ts, closes, vols = r.get("timestamp") or [], q.get("close") or [], q.get("volume") or []
-    rows = [(t, c, (vols[i] if i < len(vols) else None) or 0) for i, (t, c) in enumerate(zip(ts, closes)) if c is not None]
+    rows = [(t, c, (vols[i] if i < len(vols) else None) or 0) for i, (t, c) in enumerate(zip(ts, closes)) if c is not None and c > 0]  # Yahoo 偶尔给 0 收盘价，和缺失一样丢掉
     if not rows:
         raise ApiError(f"没有行情数据: {sym}")
     price = meta.get("regularMarketPrice") or rows[-1][1]
@@ -611,8 +611,8 @@ def run_backtest(closes, ts, strategy, fee_bp=5):
     if start is None or len(closes) - start < 60:
         raise ApiError("历史数据不足，无法回测")
     fee = fee_bp / 10000
-    eq, bh, trades = [1.0], [1.0], []
-    entry, entry_eq = (start, 1.0) if pos[start] else (None, None)  # 预热期一结束就持有，也算一笔开仓
+    eq, bh, trades = [1.0 - fee if pos[start] else 1.0], [1.0], []
+    entry, entry_eq = (start, eq[0]) if pos[start] else (None, None)  # 预热期一结束就持有，也算一笔开仓，同样扣手续费
     exposure = 0
     for i in range(start + 1, len(closes)):
         r = closes[i] / closes[i - 1] - 1
@@ -641,12 +641,16 @@ def run_backtest(closes, ts, strategy, fee_bp=5):
             st, sb = perf_stats([x / seg[0] for x in seg], t[a:b]), perf_stats([x / segb[0] for x in segb], t[a:b])
             halves.append({"from": t[a], "to": t[b - 1], "total": st["total"], "bh_total": sb["total"], "mdd": st["mdd"], "sharpe": st["sharpe"]})
     step = -(-len(eq) // 300)  # 向上取整：最多约 300 个点
+    idx = list(range(0, len(eq), step))
+    if idx[-1] != len(eq) - 1:
+        idx.append(len(eq) - 1)  # 最后一根一定要在：图的终点要和表里的总收益、结束日期一致
+    pick = lambda arr: [arr[i] for i in idx]
     return {"strategy": strategy, "fee_bp": fee_bp, "start": t[0], "end": t[-1], "days": len(eq) - 1,
             "stats": perf_stats(eq, t), "bh": perf_stats(bh, t), "exposure": exposure / max(1, len(eq) - 1) * 100,
             "trades": len(trades), "win_rate": len(wins) / len(trades) * 100 if trades else None,
             "avg_trade": sum(x["ret"] for x in trades) / len(trades) if trades else None,
             "open_trade": open_trade, "halves": halves, "in_position": bool(pos[-1]),
-            "series": {"ts": t[::step], "eq": [round(x, 5) for x in eq[::step]], "bh": [round(x, 5) for x in bh[::step]], "pos": [int(p or 0) for p in pos[start:]][::step]},
+            "series": {"ts": pick(t), "eq": [round(x, 5) for x in pick(eq)], "bh": [round(x, 5) for x in pick(bh)], "pos": pick([int(p or 0) for p in pos[start:]])},
             "recent_trades": [{"entry": ts[x["entry"]], "exit": ts[x["exit"]], "ret": x["ret"]} for x in trades[-12:]]}
 
 
@@ -699,6 +703,8 @@ def vol_cone(closes, target=None, lookback=252):
     if len(rets) < 60:
         raise ApiError("历史数据不足，无法计算统计区间")
     sig = stdev(rets[-lookback:])
+    if not sig:
+        raise ApiError("价格没有波动，无法计算统计区间")
     sig20 = stdev(rets[-20:])
     price = closes[-1]
     bands = []
@@ -748,6 +754,7 @@ def forecast(sym, target=None):
 
 SIG_H = (5, 20)
 _signals_cache = {}
+_signals_lock = threading.Lock()
 
 
 def feature_rows(closes):
@@ -928,7 +935,8 @@ def seasonality(closes, ts):
 
 def signals(sym):
     sym = sym.strip().upper()
-    hit = _signals_cache.get(sym)
+    with _signals_lock:
+        hit = _signals_cache.get(sym)
     if hit and time.time() - hit[0] < 3600:
         return hit[1]
     d = lab_chart(sym)
@@ -942,9 +950,10 @@ def signals(sym):
         out["model"] = model_eval(closes, rows)
     except ApiError as e:
         out["model_error"] = str(e)
-    _signals_cache[sym] = (time.time(), out)
-    if len(_signals_cache) > 50:
-        _signals_cache.pop(next(iter(_signals_cache)))
+    with _signals_lock:
+        _signals_cache[sym] = (time.time(), out)
+        while len(_signals_cache) > 50:
+            _signals_cache.pop(next(iter(_signals_cache)))
     return out
 
 
@@ -1142,7 +1151,7 @@ def portfolio(swr=True):
     rows.sort(key=lambda r: -(r.get("value_usd") or r.get("value") or 0))
     usd = {"value": usd_value, "cost": usd_cost, "pnl": usd_value - usd_cost, "pnl_pct": (usd_value / usd_cost - 1) * 100 if usd_cost else None,
            "day_pnl": usd_day, "day_pct": usd_day / (usd_value - usd_day) * 100 if usd_value - usd_day else None, "n": len(conv)} if conv else None
-    return {"positions": rows, "totals": sorted(totals.values(), key=lambda t: -t["value"]), "usd": usd, "fx": fx,
+    return {"positions": rows, "totals": sorted(totals.values(), key=lambda t: -(t["value"] / fx[t["currency"]] if fx.get(t["currency"]) else t["value"])), "usd": usd, "fx": fx,
             "unconverted": sorted({r["currency"] for r in ok} - set(fx)), "stale": any(r.get("stale") for r in ok), "errors": {r["sym"]: r["error"] for r in rows if r.get("error")}}
 
 

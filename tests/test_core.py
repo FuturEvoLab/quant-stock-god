@@ -86,6 +86,10 @@ class QuantLab(unittest.TestCase):
         self.assertIsNotNone(r["open_trade"])
         self.assertEqual(r["stats"]["mdd"], 0.0)  # 单边上涨没有回撤
         self.assertEqual(len(r["halves"]), 2)
+        self.assertEqual(r["series"]["ts"][-1], r["end"])  # 抽样后的曲线终点和表里的结束日期、总收益一致
+        self.assertAlmostEqual(r["series"]["eq"][-1], 1 + r["stats"]["total"] / 100, places=4)
+        with_fee = s.run_backtest(c, ts, "buyhold", fee_bp=50)
+        self.assertAlmostEqual(with_fee["stats"]["total"], ((c[-1] / c[0]) * (1 - 0.005) - 1) * 100, places=6)  # 第一笔开仓也扣手续费
 
     def test_trend_following_on_a_v_shape(self):
         # 先跌 220 天再涨 220 天：200 日趋势策略应在下跌段空仓，交易次数很少
@@ -108,6 +112,7 @@ class QuantLab(unittest.TestCase):
         ts = [1_600_000_000 + i * 86400 for i in range(600)]
         r = s.run_backtest(c, ts, "rsi_mr", fee_bp=5)
         self.assertGreater(r["trades"], 3)
+        self.assertLess(s.run_backtest(c, ts, "rsi_mr", 50)["stats"]["total"], s.run_backtest(c, ts, "rsi_mr", 0)["stats"]["total"])  # 手续费确实扣了
         self.assertTrue(0 <= r["win_rate"] <= 100)
         self.assertEqual(len(r["recent_trades"]), min(12, r["trades"]))
         self.assertLessEqual(len(r["series"]["ts"]), 310)
@@ -133,10 +138,21 @@ class QuantLab(unittest.TestCase):
         f2 = s.vol_cone(c, target=c[-1] * 1.5)
         self.assertLess(f2["prob"][0]["end"], f2["prob"][-1]["end"])  # 期限越长越可能到达
         self.assertIn(20, f2["coverage"])
-        self.assertTrue(0 <= f2["coverage"][20]["c1"] <= 100)
         self.assertEqual(s.norm_cdf(0), 0.5)
         with self.assertRaises(s.ApiError):
             s.vol_cone(c[:30])
+        with self.assertRaises(s.ApiError):
+            s.vol_cone([100.0] * 300, target=110)  # 没有波动的序列要给出可读的错误，而不是除以零
+        # 校准：高斯随机游走上 1σ 区间应覆盖 55%~80%，2σ 更多
+        import random
+        random.seed(3)
+        c3, _ = self.series(n=900)
+        c3 = [100.0]
+        for _ in range(899):
+            c3.append(c3[-1] * math.exp(random.gauss(0, 0.012)))
+        cov = s.vol_cone(c3)["coverage"]
+        self.assertTrue(55 < cov[5]["c1"] < 80, cov)
+        self.assertGreater(cov[5]["c2"], cov[5]["c1"])
 
 
 class Signals(unittest.TestCase):
@@ -192,7 +208,8 @@ class Signals(unittest.TestCase):
         # 纯随机游走：不应该“有效”
         c2, _ = self.walk(1500, lambda i, c: random.gauss(0, 0.012))
         m2 = s.model_eval(c2, s.feature_rows(c2))
-        self.assertFalse(m2["useful"] and m2["accuracy"] > m2["base_accuracy"] + 8)
+        self.assertFalse(m2["useful"])
+        self.assertLess(m2["accuracy"], m2["base_accuracy"] + 3)
         with self.assertRaises(s.ApiError):
             s.model_eval(c[:500], s.feature_rows(c[:500]))
 
@@ -227,7 +244,8 @@ class Signals(unittest.TestCase):
         c = c[1:]
         se = s.seasonality(c, ts)
         self.assertEqual(len(se["months"]), 12)
-        self.assertTrue(all(m["hit"] == 100.0 for m in se["months"] if m["n"]))
+        self.assertTrue(all(m["n"] >= 3 for m in se["months"]), se["months"])  # 四年数据：每个月至少 3 个样本（第一个不完整的月份跳过）
+        self.assertTrue(all(m["hit"] == 100.0 for m in se["months"]))
         self.assertEqual(len(se["weekdays"]), 5)
 
 

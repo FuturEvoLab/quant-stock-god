@@ -14,7 +14,10 @@ async function loadPortfolio(force = false) {
     pf.data = await api("/api/portfolio");
     pf.at = Date.now();
     renderPortfolio();
-  } catch (e) { $("#pf-msg").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+  } catch (e) {
+    $("#pf-msg").innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    if (!pf.data) $("#pf-table").innerHTML = "";  // 第一次就失败：别让“正在获取行情”一直转
+  }
   btn.disabled = false;
 }
 
