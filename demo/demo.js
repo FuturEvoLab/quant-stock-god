@@ -50,6 +50,7 @@
     if (path === "/api/corr") key = `corr|${u.searchParams.get("days") || 60}`;
     if (path === "/api/backtest") key = `backtest|${(u.searchParams.get("sym") || "").toUpperCase()}|${u.searchParams.get("strategy") || "ma_cross"}`;  // 演示版只录了一个区间
     if (path === "/api/forecast") key = `forecast|${(u.searchParams.get("sym") || "").toUpperCase()}`;
+    if (path === "/api/signals") key = `signals|${(u.searchParams.get("sym") || "").toUpperCase()}`;
     if (path === "/api/version") return reply({ ...data[key], started: Math.floor(Date.now() / 1000) }); // 不显示“代码已更新”提示条
     return key in data ? reply(data[key]) : reply({ error: T.err }, 400);
   };

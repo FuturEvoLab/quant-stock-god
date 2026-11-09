@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8767"))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
@@ -727,6 +727,211 @@ def vol_cone(closes, target=None, lookback=252):
 def forecast(sym, target=None):
     d = yahoo_chart(sym, "2y", ttl=3600)
     return {**vol_cone(d["close"], target), "sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "last_ts": d["ts"][-1]}
+
+
+# ---------------------------------------------------------------- 预测检验：历史相似情形、样本外逻辑回归、季节性
+# 三样东西回答的都是“历史上出现这种情况之后发生了什么”，并把结果和不看任何信息的基准率放在一起；
+# 模型部分用训练期 / 检验期分开，报告的是检验期（样本外）的命中率和 Brier 分数——绝大多数品种会接近基准，这本身就是结论。
+
+SIG_H = (5, 20)
+_signals_cache = {}
+
+
+def feature_rows(closes):
+    """每一天的特征：近 5 / 20 / 60 日收益、RSI(14)、相对 200 日均线、20 日 / 252 日波动比、52 周区间位置。前 260 天没有特征"""
+    n = len(closes)
+    m200 = sma(closes, 200)
+    rets = [None] + [math.log(closes[i] / closes[i - 1]) if closes[i - 1] > 0 and closes[i] > 0 else 0.0 for i in range(1, n)]
+    rows = [None] * n
+    for i in range(260, n):
+        r = rets[i - 19:i + 1]
+        v20 = stdev(r)
+        v252 = stdev(rets[i - 251:i + 1])
+        if not v20 or not v252 or not m200[i]:
+            continue
+        win = closes[i - 251:i + 1]
+        lo, hi = min(win), max(win)
+        rows[i] = {"r5": closes[i] / closes[i - 5] - 1, "r20": closes[i] / closes[i - 20] - 1, "r60": closes[i] / closes[i - 60] - 1,
+                   "rsi": (rsi(closes[i - 119:i + 1]) or 50) / 100 - 0.5, "ma200": closes[i] / m200[i] - 1, "volr": v20 / v252 - 1,
+                   "pos52": (closes[i] - lo) / (hi - lo) - 0.5 if hi > lo else 0.0}
+    return rows
+
+
+FEATURES = ("r5", "r20", "r60", "rsi", "ma200", "volr", "pos52")
+
+
+def state_of(f):
+    return {"trend": "above" if f["ma200"] > 0 else "below", "mom": "up" if f["r20"] > 0 else "down",
+            "rsi": "oversold" if f["rsi"] < -0.2 else "overbought" if f["rsi"] > 0.2 else "neutral",
+            "vol": "high" if f["volr"] > 0.2 else "low" if f["volr"] < -0.2 else "normal"}
+
+
+def quantile(sorted_vals, q):
+    if not sorted_vals:
+        return None
+    k = (len(sorted_vals) - 1) * q
+    lo, hi = math.floor(k), math.ceil(k)
+    return sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * (k - lo)
+
+
+def analog_stats(closes, rows, cur):
+    """和当前状态相同的历史日子之后 5 / 20 日的收益分布；样本太少就逐步放宽条件"""
+    n = len(closes)
+    keys_order = (("trend", "mom", "rsi"), ("trend", "mom"), ("trend",))
+    cur_state = state_of(cur)
+    for keys in keys_order:
+        idx = [i for i in range(260, n - SIG_H[-1]) if rows[i] and all(state_of(rows[i])[k] == cur_state[k] for k in keys)]
+        if len(idx) >= 40:
+            break
+    out = {"state": cur_state, "matched_on": list(keys), "n": len(idx), "horizons": []}
+    for h in SIG_H:
+        fwd = sorted((closes[i + h] / closes[i] - 1) * 100 for i in idx)
+        base = sorted((closes[i + h] / closes[i] - 1) * 100 for i in range(260, n - h) if rows[i])
+        out["horizons"].append({"h": h, "n": len(fwd), "hit": sum(1 for x in fwd if x > 0) / len(fwd) * 100 if fwd else None,
+                                "base_hit": sum(1 for x in base if x > 0) / len(base) * 100 if base else None,
+                                "median": quantile(fwd, 0.5), "p25": quantile(fwd, 0.25), "p75": quantile(fwd, 0.75),
+                                "mean": sum(fwd) / len(fwd) if fwd else None, "base_median": quantile(base, 0.5)})
+    return out
+
+
+def solve(a, b):
+    """高斯消元解 a·x = b（小矩阵）"""
+    n = len(b)
+    m = [row[:] + [b[i]] for i, row in enumerate(a)]
+    for col in range(n):
+        piv = max(range(col, n), key=lambda r: abs(m[r][col]))
+        m[col], m[piv] = m[piv], m[col]
+        if abs(m[col][col]) < 1e-12:
+            m[col][col] = 1e-12
+        for r in range(n):
+            if r != col:
+                f = m[r][col] / m[col][col]
+                if f:
+                    m[r] = [x - f * y for x, y in zip(m[r], m[col])]
+    return [m[i][n] / m[i][i] for i in range(n)]
+
+
+def logit_fit(X, y, l2=1.0, iters=12):
+    """逻辑回归（牛顿法 + L2 正则）。X 已标准化并带截距列"""
+    k = len(X[0])
+    w = [0.0] * k
+    for _ in range(iters):
+        g = [0.0] * k
+        H = [[0.0] * k for _ in range(k)]
+        for xi, yi in zip(X, y):
+            z = sum(wj * xj for wj, xj in zip(w, xi))
+            p = 1 / (1 + math.exp(-max(-30, min(30, z))))
+            d = p - yi
+            s = p * (1 - p)
+            for a in range(k):
+                g[a] += d * xi[a]
+                for b in range(a, k):
+                    H[a][b] += s * xi[a] * xi[b]
+        for a in range(k):
+            for b in range(a):
+                H[a][b] = H[b][a]
+        for a in range(1, k):  # 不正则化截距
+            g[a] += l2 * w[a]
+            H[a][a] += l2
+        step = solve(H, g)
+        w = [wi - si for wi, si in zip(w, step)]
+        if max(abs(s) for s in step) < 1e-6:
+            break
+    return w
+
+
+def standardize(rows, idx):
+    mu = {f: sum(rows[i][f] for i in idx) / len(idx) for f in FEATURES}
+    sd = {f: (sum((rows[i][f] - mu[f]) ** 2 for i in idx) / max(1, len(idx) - 1)) ** 0.5 or 1.0 for f in FEATURES}
+    return mu, sd
+
+
+def vec(f, mu, sd):
+    return [1.0] + [(f[k] - mu[k]) / sd[k] for k in FEATURES]
+
+
+def predict(w, x):
+    return 1 / (1 + math.exp(-max(-30, min(30, sum(a * b for a, b in zip(w, x))))))
+
+
+def model_eval(closes, rows, h=20, test_days=252):
+    """训练期 = 检验期之前的全部历史；检验期 = 最近 test_days 天（目标已知的部分）。再用全部数据拟合一次给出当前概率"""
+    n = len(closes)
+    labeled = [i for i in range(260, n - h) if rows[i]]
+    if len(labeled) < 400:
+        raise ApiError("历史数据不足，无法检验模型（至少约 3 年）")
+    split = n - h - test_days
+    train = [i for i in labeled if i < split]
+    test = [i for i in labeled if i >= split]
+    if len(train) < 250 or len(test) < 100:
+        raise ApiError("历史数据不足，无法检验模型（至少约 3 年）")
+    y = {i: 1 if closes[i + h] > closes[i] else 0 for i in labeled}
+    mu, sd = standardize(rows, train)
+    w = logit_fit([vec(rows[i], mu, sd) for i in train], [y[i] for i in train])
+    base = sum(y[i] for i in train) / len(train)  # 训练期上涨比例：最朴素的“预测”
+    probs = [(predict(w, vec(rows[i], mu, sd)), y[i]) for i in test]
+    acc = sum(1 for p, t in probs if (p >= 0.5) == (t == 1)) / len(probs) * 100
+    base_acc = sum(1 for _, t in probs if (base >= 0.5) == (t == 1)) / len(probs) * 100  # 基准：一直预测训练期的多数方向
+    brier = sum((p - t) ** 2 for p, t in probs) / len(probs)
+    brier_base = sum((base - t) ** 2 for _, t in probs) / len(probs)
+    test_up = sum(t for _, t in probs) / len(probs) * 100
+    # 校准：预测概率分 3 档，各档实际上涨比例
+    bins = []
+    for lo, hi in ((0, 0.4), (0.4, 0.6), (0.6, 1.01)):
+        sel = [t for p, t in probs if lo <= p < hi]
+        bins.append({"range": [lo, min(hi, 1)], "n": len(sel), "up": sum(sel) / len(sel) * 100 if sel else None})
+    # 全样本拟合 → 当前概率
+    mu2, sd2 = standardize(rows, labeled)
+    w2 = logit_fit([vec(rows[i], mu2, sd2) for i in labeled], [y[i] for i in labeled])
+    cur = rows[n - 1]
+    p_now = predict(w2, vec(cur, mu2, sd2))
+    weights = sorted(({"feature": f, "w": w2[k + 1]} for k, f in enumerate(FEATURES)), key=lambda x: -abs(x["w"]))
+    return {"h": h, "train_n": len(train), "test_n": len(test), "accuracy": acc, "base_accuracy": base_acc, "base_rate": base * 100, "test_up": test_up,
+            "brier": brier, "brier_base": brier_base, "skill": (1 - brier / brier_base) * 100 if brier_base else None,
+            "calibration": bins, "p_now": p_now * 100, "weights": weights,
+            "useful": acc >= base_acc + 3 and brier < brier_base}
+
+
+def seasonality(closes, ts):
+    by_m = {m: [] for m in range(1, 13)}
+    by_w = {d: [] for d in range(5)}
+    prev_key = None
+    month_start = None
+    for i, t in enumerate(ts):
+        dt = datetime.fromtimestamp(t, timezone.utc)
+        if i:
+            by_w.setdefault(dt.weekday(), []).append(closes[i] / closes[i - 1] - 1)
+        key = (dt.year, dt.month)
+        if key != prev_key:
+            if prev_key is not None and month_start is not None:
+                by_m[prev_key[1]].append(closes[i - 1] / month_start - 1)  # 月收益 = 本月最后收盘 / 上月最后收盘
+            month_start = closes[i - 1] if i else None  # 第一个月不知道上月收盘，跳过
+            prev_key = key
+    def agg(vals):
+        return {"n": len(vals), "mean": sum(vals) / len(vals) * 100 if vals else None, "hit": sum(1 for v in vals if v > 0) / len(vals) * 100 if vals else None}
+    return {"months": [{"m": m, **agg(v)} for m, v in by_m.items()], "weekdays": [{"d": d, **agg(by_w.get(d, []))} for d in range(5)]}
+
+
+def signals(sym):
+    sym = sym.strip().upper()
+    hit = _signals_cache.get(sym)
+    if hit and time.time() - hit[0] < 3600:
+        return hit[1]
+    d = yahoo_chart(sym, "10y", ttl=6 * 3600)
+    closes, ts = d["close"], d["ts"]
+    rows = feature_rows(closes)
+    if not rows[-1]:
+        raise ApiError("历史数据不足，无法计算（至少约 1 年）")
+    out = {"sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "price": closes[-1], "last_ts": ts[-1], "years": (ts[-1] - ts[0]) / (365.25 * 86400),
+           "features": rows[-1], "analogs": analog_stats(closes, rows, rows[-1]), "seasonality": seasonality(closes, ts), "model": None, "model_error": None}
+    try:
+        out["model"] = model_eval(closes, rows)
+    except ApiError as e:
+        out["model_error"] = str(e)
+    _signals_cache[sym] = (time.time(), out)
+    if len(_signals_cache) > 50:
+        _signals_cache.pop(next(iter(_signals_cache)))
+    return out
 
 
 # ---------------------------------------------------------------- 跨资产相关性（日收益率的 Pearson 相关系数）
@@ -2565,6 +2770,8 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/forecast":
             t = q.get("target")
             return forecast(q.get("sym", ""), num(t, 0, 1e9) if t not in (None, "") else None)
+        if path == "/api/signals":
+            return signals(q.get("sym", ""))
         if path == "/api/corr":
             return corr(num(q.get("days"), 0, 1000, 60))
         if path == "/api/status":

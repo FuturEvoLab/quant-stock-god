@@ -4,7 +4,7 @@ import math
 import os
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -137,6 +137,77 @@ class QuantLab(unittest.TestCase):
         self.assertEqual(s.norm_cdf(0), 0.5)
         with self.assertRaises(s.ApiError):
             s.vol_cone(c[:30])
+
+
+class Signals(unittest.TestCase):
+    def walk(self, n, fn):
+        c = [100.0]
+        for i in range(1, n):
+            c.append(c[-1] * math.exp(fn(i, c)))
+        return c, [1_400_000_000 + i * 86400 for i in range(n)]
+
+    def test_solve_quantile_and_logit(self):
+        self.assertEqual([round(x, 6) for x in s.solve([[2, 1], [1, 3]], [3, 5])], [0.8, 1.4])
+        self.assertEqual((s.quantile([1, 2, 3, 4], 0.5), s.quantile([1, 2, 3, 4], 0.25), s.quantile([], 0.5)), (2.5, 1.75, None))
+        # 可分数据：第一个特征决定标签 → 该权重为正且远大于噪声特征
+        import random
+        random.seed(1)
+        X, y = [], []
+        for _ in range(400):
+            a, b = random.gauss(0, 1), random.gauss(0, 1)
+            X.append([1.0, a, b])
+            y.append(1 if a + random.gauss(0, 0.3) > 0 else 0)
+        w = s.logit_fit(X, y)
+        self.assertGreater(w[1], 1.0)
+        self.assertLess(abs(w[2]), 0.5)
+        self.assertGreater(s.predict(w, [1.0, 2.0, 0.0]), 0.9)
+
+    def test_features_state_and_analogs(self):
+        c, ts = self.walk(900, lambda i, c: 0.01 * math.sin(i / 30))
+        rows = s.feature_rows(c)
+        self.assertIsNone(rows[259])
+        self.assertTrue(all(k in rows[-1] for k in s.FEATURES))
+        st = s.state_of({"ma200": 0.1, "r20": -0.01, "rsi": 0.3, "volr": 0.0})
+        self.assertEqual(st, {"trend": "above", "mom": "down", "rsi": "overbought", "vol": "normal"})
+        a = s.analog_stats(c, rows, rows[-1])
+        self.assertGreaterEqual(a["n"], 40)
+        self.assertEqual([h["h"] for h in a["horizons"]], list(s.SIG_H))
+        for h in a["horizons"]:
+            self.assertTrue(0 <= h["hit"] <= 100 and 0 <= h["base_hit"] <= 100)
+            self.assertLessEqual(h["p25"], h["median"])
+            self.assertLessEqual(h["median"], h["p75"])
+
+    def test_model_eval_finds_a_real_pattern_and_rejects_noise(self):
+        import random
+        random.seed(7)
+        # 强均值回归：价格偏离 100 越远越往回走 → 20 日后方向可预测
+        c, ts = self.walk(1500, lambda i, c: -0.08 * math.log(c[-1] / 100) + random.gauss(0, 0.01))
+        m = s.model_eval(c, s.feature_rows(c))
+        self.assertGreater(m["accuracy"], m["base_accuracy"] + 5)
+        self.assertLess(m["brier"], m["brier_base"])
+        self.assertTrue(m["useful"])
+        self.assertTrue(0 <= m["p_now"] <= 100)
+        self.assertEqual(sum(b["n"] for b in m["calibration"]), m["test_n"])
+        self.assertEqual(len(m["weights"]), len(s.FEATURES))
+        # 纯随机游走：不应该“有效”
+        c2, _ = self.walk(1500, lambda i, c: random.gauss(0, 0.012))
+        m2 = s.model_eval(c2, s.feature_rows(c2))
+        self.assertFalse(m2["useful"] and m2["accuracy"] > m2["base_accuracy"] + 8)
+        with self.assertRaises(s.ApiError):
+            s.model_eval(c[:500], s.feature_rows(c[:500]))
+
+    def test_seasonality(self):
+        # 每月 1 日涨 10%、其余日子不动 → 每个月的月收益都是正的
+        ts, c, day = [], [100.0], datetime(2020, 1, 1, tzinfo=timezone.utc)
+        while day.year < 2024:
+            ts.append(int(day.timestamp()))
+            c.append(c[-1] * (1.1 if day.day == 1 else 1.0))
+            day += timedelta(days=1)
+        c = c[1:]
+        se = s.seasonality(c, ts)
+        self.assertEqual(len(se["months"]), 12)
+        self.assertTrue(all(m["hit"] == 100.0 for m in se["months"] if m["n"]))
+        self.assertEqual(len(se["weekdays"]), 5)
 
 
 class Portfolio(unittest.TestCase):

@@ -79,6 +79,10 @@ def record():
             except Exception as e:  # noqa: BLE001
                 print("  跳过回测", sym, st, e)
         try:
+            data[f"signals|{sym}"] = s.signals(sym)
+        except Exception as e:  # noqa: BLE001
+            print("  跳过预测检验", sym, e)
+        try:
             data[f"forecast|{sym}"] = s.forecast(sym)
         except Exception as e:  # noqa: BLE001
             print("  跳过统计区间", sym, e)
