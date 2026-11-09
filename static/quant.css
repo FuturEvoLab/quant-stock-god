@@ -325,3 +325,29 @@ svg text { stroke: none; }
 /* 英文界面：品牌名 “Quant Stock God” 比中文长，Orbitron 宽字体在侧栏里会被截断；英文时改用同为 HUD 风格的 Rajdhani */
 :root:lang(en) .brand .brand-name { font-family: "Rajdhani", var(--font); font-size: 14px; font-weight: 700; letter-spacing: .02em; }
 :root:lang(en) .brand .brand-sub { font-size: 9.5px; letter-spacing: .06em; }
+
+/* 量化实验室 */
+.ql-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 1100px) { .ql-grid { grid-template-columns: 1fr; } }
+.ql-metrics td, .ql-bands td, .ql-halves td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.ql-metrics th, .ql-bands th, .ql-halves th { font-size: 11px; color: var(--muted); padding: 4px 8px; text-align: left; }
+.ql-metrics th.num, .ql-bands th.num, .ql-halves th.num { text-align: right; }
+.ql-metrics td.up, .ql-halves td.up, .ql-facts b.up { color: var(--in); } .ql-metrics td.down, .ql-halves td.down, .ql-facts b.down { color: var(--out); }
+.ql-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.ql-facts > div { padding: 8px 10px; border: 1px solid var(--border); background: var(--surface-2); min-width: 0; }
+.ql-facts span { display: block; font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+.ql-facts b { display: block; margin-top: 2px; font-size: 16px; }
+.ql-facts small { display: block; font-size: 11px; margin-top: 2px; }
+.ql-chart { margin: 14px 0 6px; }
+.ql-chart svg { width: 100%; height: 220px; display: block; }
+.ql-chart.cone svg { height: 200px; }
+.ql-chart .g { stroke: var(--border); }
+.ql-chart text { font: 600 10px var(--mono); fill: var(--muted); }
+.ql-chart path { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.ql-chart path.bh { stroke-dasharray: 4 3; }
+.ql-legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.ql-legend i { display: inline-block; width: 14px; height: 3px; margin-right: 6px; vertical-align: middle; }
+.ql-halves { margin-top: 12px; }
+.ql-note { font-size: 11.5px; margin: 8px 0 0; }
+.ql-trades { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; }
+.ql-trades > span.up b { color: var(--in); } .ql-trades > span.down b { color: var(--out); }

@@ -135,7 +135,7 @@ requestAnimationFrame(moveNavIndicator);
 
 document.addEventListener("keydown", (e) => {
   if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
-  const tab = { 1: "market", 2: "watch", 3: "portfolio", 4: "smart", 5: "cot", 6: "news", 7: "settings" }[e.key];
+  const tab = { 1: "market", 2: "watch", 3: "portfolio", 4: "quant", 5: "smart", 6: "cot", 7: "news", 8: "settings" }[e.key];
   if (tab) switchTab(tab);
 });
 
@@ -409,7 +409,7 @@ function renderMarquee() {
   const hits = state.rows.filter((r) => r.flags?.length);
   const items = hits.length
     ? hits.map((r) => `<span class="mq ${r.chg1d >= 0 ? "in" : "out"}">◆ ${esc(r.label || r.sym)} ${FLAG_TEXT[r.flags[0]]} <b>${pct(r.chg1d)}</b> · ${fmtPx(r.price)}</span>`)
-    : [`<span class="mq">◆ SYSTEM READY · 自选 ${state.watch.length} 个品种</span>`, `<span class="mq">◆ 行情约延迟 15 分钟 · 不构成投资建议</span>`, `<span class="mq">◆ 快捷键 1–7 切换页面 · / 查看代码</span>`];
+    : [`<span class="mq">◆ SYSTEM READY · 自选 ${state.watch.length} 个品种</span>`, `<span class="mq">◆ 行情约延迟 15 分钟 · 不构成投资建议</span>`, `<span class="mq">◆ 快捷键 1–8 切换页面 · / 查看代码</span>`];
   const html = items.join("");
   $("#marquee-track").innerHTML = html + html; // 两份首尾相接，无缝循环
   $("#marquee-track").style.animationDuration = `${Math.max(30, items.length * 9)}s`;

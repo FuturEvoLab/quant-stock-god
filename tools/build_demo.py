@@ -71,6 +71,17 @@ def record():
             data[f"detail|{sym}"] = s.detail(sym)
         except Exception as e:  # noqa: BLE001 — 个别品种失败就不放进演示
             print("  跳过", sym, e)
+    print("量化实验室…")
+    for sym in sorted(syms):
+        for st in s.STRATEGIES:
+            try:
+                data[f"backtest|{sym}|{st}"] = s.backtest(sym, st, "5y")
+            except Exception as e:  # noqa: BLE001
+                print("  跳过回测", sym, st, e)
+        try:
+            data[f"forecast|{sym}"] = s.forecast(sym)
+        except Exception as e:  # noqa: BLE001
+            print("  跳过统计区间", sym, e)
     print("相关性…")
     for days in s.CORR_DAYS:
         data[f"corr|{days}"] = s.corr(days)

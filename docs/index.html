@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="market.css?v=3">
 <link rel="stylesheet" href="smart.css?v=2">
 <link rel="stylesheet" href="gold.css?v=1">
-<link rel="stylesheet" href="quant.css?v=6">
+<link rel="stylesheet" href="quant.css?v=7">
 <script src="boot.js?v=1"></script>
 <script src="demo.js" data-generated="1793622614"></script>
 </head>
@@ -35,7 +35,7 @@
       </svg>
       <div class="brand-txt">
         <div class="brand-name" data-text="量化股神">量化股神</div>
-        <div class="brand-sub">QUANT STOCK GOD <i>v1.3</i></div>
+        <div class="brand-sub">QUANT STOCK GOD <i>v1.4</i></div>
       </div>
       <button id="nav-collapse" class="nav-collapse" type="button" title="收起 / 展开侧栏">
         <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
@@ -63,26 +63,32 @@
         <span class="ni-txt"><b>持仓盈亏</b><small>PORTFOLIO</small></span>
         <span class="ni-arrow">›</span>
       </button>
-      <button data-tab="smart" title="聪明钱（快捷键 4）">
+      <button data-tab="quant" title="量化实验室（快捷键 4）">
         <span class="ni-idx">04</span>
+        <span class="ni-ico"><svg viewBox="0 0 24 24"><path d="M9 3h6"/><path d="M10 3v6.5L4.5 19a1.5 1.5 0 001.3 2.2h12.4a1.5 1.5 0 001.3-2.2L14 9.5V3"/><path d="M7 15h10"/></svg></span>
+        <span class="ni-txt"><b>量化实验室</b><small>QUANT LAB</small></span>
+        <span class="ni-arrow">›</span>
+      </button>
+      <button data-tab="smart" title="聪明钱（快捷键 5）">
+        <span class="ni-idx">05</span>
         <span class="ni-ico"><svg viewBox="0 0 24 24"><path d="M3 17l5.5-5.5 4 4L21 7"/><path d="M15 7h6v6"/><path d="M3 21h18"/></svg></span>
         <span class="ni-txt"><b>聪明钱</b><small>SMART MONEY</small></span>
         <span class="ni-arrow">›</span>
       </button>
-      <button data-tab="cot" title="商品持仓（快捷键 5）">
-        <span class="ni-idx">05</span>
+      <button data-tab="cot" title="商品持仓（快捷键 6）">
+        <span class="ni-idx">06</span>
         <span class="ni-ico"><svg viewBox="0 0 24 24"><rect x="3" y="12" width="4" height="8"/><rect x="10" y="7" width="4" height="13"/><rect x="17" y="4" width="4" height="16"/></svg></span>
         <span class="ni-txt"><b>商品持仓</b><small>COT POSITIONING</small></span>
         <span class="ni-arrow">›</span>
       </button>
-      <button data-tab="news" title="新闻影响（快捷键 6）">
-        <span class="ni-idx">06</span>
+      <button data-tab="news" title="新闻影响（快捷键 7）">
+        <span class="ni-idx">07</span>
         <span class="ni-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="14" height="16" rx="1.5"/><path d="M17 8h3v10a2 2 0 01-2 2H5"/><path d="M6.5 8h7M6.5 11.5h7M6.5 15h4"/></svg></span>
         <span class="ni-txt"><b>新闻影响</b><small>NEWS IMPACT</small></span>
         <span id="nav-news" class="nav-badge" hidden></span><span class="ni-arrow">›</span>
       </button>
-      <button data-tab="settings" title="设置（快捷键 7）">
-        <span class="ni-idx">07</span>
+      <button data-tab="settings" title="设置（快捷键 8）">
+        <span class="ni-idx">08</span>
         <span class="ni-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg></span>
         <span class="ni-txt"><b>设置</b><small>SYS CONFIG</small></span>
         <span class="ni-arrow">›</span>
@@ -280,11 +286,42 @@
       </div>
     </section>
 
+    <!-- ======================= 量化实验室 ======================= -->
+    <section id="tab-quant" class="tab">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">MODULE 04 // QUANT LAB</div>
+          <h1>量化实验室</h1>
+          <p>用历史日线检验简单规则（只做多、按收盘价执行、含手续费），并按过去一年的波动率给出未来 N 个交易日的价格统计区间。两者都是对历史数据的统计描述，不是预测，不构成投资建议。</p>
+        </div>
+      </header>
+      <form id="ql-form" class="card form-card">
+        <div class="form-title">回测设置</div>
+        <div class="form-row">
+          <input id="ql-sym" placeholder="代码，如 AAPL / 0700.HK / GC=F / ^GSPC" spellcheck="false" class="mono-input grow" required>
+          <label class="field"><span>策略</span><select id="ql-strategy"><option value="ma_cross">均线金叉 / 死叉（20 / 50 日）</option><option value="trend200">200 日趋势</option><option value="rsi_mr">RSI 均值回归</option><option value="buyhold">买入持有</option></select></label>
+          <label class="field"><span>区间</span><select id="ql-range"><option value="2y">2 年</option><option value="5y" selected>5 年</option><option value="10y">10 年</option></select></label>
+          <label class="field" title="每次换仓的成本，1 bp = 0.01%"><span>手续费</span><input id="ql-fee" type="number" min="0" max="100" step="1" value="5" class="w-sm mono-input"><em>bp</em></label>
+          <label class="field" title="可选：按历史波动率估算未来 N 个交易日到达该价位的概率"><span>目标价</span><input id="ql-target" type="number" min="0" step="any" placeholder="可选" class="w-sm mono-input"></label>
+          <button class="primary">运行</button>
+        </div>
+        <div id="ql-quick" class="form-row"></div>
+      </form>
+      <div class="card">
+        <div class="card-head"><h3>规则回测</h3><span id="ql-bt-sub" class="muted"></span></div>
+        <div id="ql-bt"><p class="muted">输入代码并点「运行」。策略：均线金叉 / 死叉 = 20 日均线在 50 日均线上方时持有；200 日趋势 = 价格在 200 日均线上方时持有；RSI 均值回归 = RSI(14) 低于 30 买入、高于 70 卖出。</p></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>统计区间（历史波动率）</h3><span id="ql-fc-sub" class="muted"></span></div>
+        <div id="ql-fc"><p class="muted">按过去一年的日波动率，给出 5 / 10 / 20 / 60 个交易日后价格的 68% 和 95% 区间；填了目标价还会算到达概率。</p></div>
+      </div>
+    </section>
+
     <!-- ======================= 聪明钱 ======================= -->
     <section id="tab-smart" class="tab">
       <header class="page-head">
         <div>
-          <div class="eyebrow">MODULE 04 // SMART MONEY · SEC EDGAR</div>
+          <div class="eyebrow">MODULE 05 // SMART MONEY · SEC EDGAR</div>
           <h1>聪明钱</h1>
           <p>美股公司内部人（董事、高管、10% 股东）用自己的钱在公开市场买入的记录（Form 4 交易代码 P），以及知名基金每季度 13F 持仓的变化。</p>
         </div>
@@ -352,7 +389,7 @@
     <section id="tab-cot" class="tab">
       <header class="page-head">
         <div>
-          <div class="eyebrow">MODULE 05 // CFTC COMMITMENTS OF TRADERS</div>
+          <div class="eyebrow">MODULE 06 // CFTC COMMITMENTS OF TRADERS</div>
           <h1>商品持仓</h1>
           <p>CFTC 每周持仓报告（细分版，仅期货）中“管理资金”（对冲基金、CTA 等投机资金）的净多头，以及它在最近 3 年里所处的百分位。数据截至每周二，周五公布。</p>
         </div>
@@ -377,7 +414,7 @@
     <section id="tab-news" class="tab">
       <header class="page-head">
         <div>
-          <div class="eyebrow">MODULE 06 // NEWS IMPACT</div>
+          <div class="eyebrow">MODULE 07 // NEWS IMPACT</div>
           <h1>新闻影响</h1>
           <p>抓取最近 72 小时与原油、天然气、黄金、白银、铜相关的公开新闻标题，用关键词规则识别其中的驱动因素（如 OPEC 减产、航道风险、美联储鹰鸽、美元、库存、中国政策、天气、矿山停产），并给出这类因素通常的影响方向。</p>
         </div>
@@ -439,7 +476,7 @@
     <section id="tab-settings" class="tab">
       <header class="page-head">
         <div>
-          <div class="eyebrow">MODULE 07 // SYSTEM CONFIG</div>
+          <div class="eyebrow">MODULE 08 // SYSTEM CONFIG</div>
           <h1>设置</h1>
           <p>API Key 和邮箱只保存在本机的 data/secrets.json 里（偏好设置在 config.json），页面不会回显已保存的内容。</p>
         </div>
@@ -522,14 +559,15 @@
   <div class="lines" id="boot-lines"></div>
   <div class="skip">CLICK TO SKIP</div>
 </div>
-<script src="i18n.js?v=7"></script>
-<script src="app.js?v=7"></script>
+<script src="i18n.js?v=8"></script>
+<script src="app.js?v=8"></script>
 <script src="market.js?v=3"></script>
 <script src="corr.js?v=1"></script>
 <script src="smart.js?v=3"></script>
 <script src="cot.js?v=3"></script>
 <script src="detail.js?v=3"></script>
 <script src="portfolio.js?v=1"></script>
+<script src="quant-lab.js?v=1"></script>
 <script src="macro.js?v=2"></script>
 <script src="news.js?v=1"></script>
 <script src="tech.js?v=1"></script>

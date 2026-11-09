@@ -1,6 +1,6 @@
 // 量化股神 — 在线演示版（GitHub Pages）专用：没有后端，页面的 /api/ 请求由这里用预先录好的数据快照回答。
 // 只在 tools/build_demo.py 生成的 docs/ 里加载，本地运行的完整版不会用到这个文件。
-// 链接参数：?lang=en|ja|zh 指定界面语言，?tab=market|watch|portfolio|smart|cot|news|settings 打开某个页面，
+// 链接参数：?lang=en|ja|zh 指定界面语言，?tab=market|watch|portfolio|quant|smart|cot|news|settings 打开某个页面，
 //          ?view=tech 新闻页切到 AI·科技股，?skin=gold|light 换配色，?clean=1 不显示演示提示条（截图用）
 (function () {
   const REPO = "https://github.com/FuturEvoLab/quant-stock-god";
@@ -48,6 +48,8 @@
     let key = path;
     if (path === "/api/detail") key = `detail|${(u.searchParams.get("sym") || "").toUpperCase()}`;
     if (path === "/api/corr") key = `corr|${u.searchParams.get("days") || 60}`;
+    if (path === "/api/backtest") key = `backtest|${(u.searchParams.get("sym") || "").toUpperCase()}|${u.searchParams.get("strategy") || "ma_cross"}`;  // 演示版只录了一个区间
+    if (path === "/api/forecast") key = `forecast|${(u.searchParams.get("sym") || "").toUpperCase()}`;
     if (path === "/api/version") return reply({ ...data[key], started: Math.floor(Date.now() / 1000) }); // 不显示“代码已更新”提示条
     return key in data ? reply(data[key]) : reply({ error: T.err }, 400);
   };

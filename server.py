@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8767"))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
@@ -547,6 +547,186 @@ def market():
     out["stale"] = any(x["stale"] for x in out["indices"] + out["commods"])
     out["refreshing"] = any(x["refreshing"] for x in out["indices"] + out["commods"])
     return out
+
+
+# ---------------------------------------------------------------- 量化实验室：规则回测 + 基于历史波动率的统计区间
+# 回测：长线、只做多、按收盘价执行（信号用当天收盘算，持仓作用于下一天的收益），每次换仓扣固定手续费。
+# 这是对历史数据的描述，不是对未来的预测；同时给出前半段 / 后半段的结果，方便看规则是否只在某一段有效。
+
+STRATEGIES = ("buyhold", "ma_cross", "trend200", "rsi_mr")
+BT_RANGES = ("2y", "5y", "10y")
+
+
+def positions_for(strategy, closes):
+    """每天收盘后的目标仓位（0 / 1）；None 表示指标还没算出来（预热期）"""
+    n = len(closes)
+    if strategy == "buyhold":
+        return [1] * n
+    if strategy == "ma_cross":
+        m20, m50 = sma(closes, 20), sma(closes, 50)
+        return [None if m50[i] is None else int(m20[i] > m50[i]) for i in range(n)]
+    if strategy == "trend200":
+        m200 = sma(closes, 200)
+        return [None if m200[i] is None else int(closes[i] > m200[i]) for i in range(n)]
+    if strategy == "rsi_mr":  # RSI < 30 买入，RSI > 70 卖出（均值回归）
+        out, held = [], 0
+        for i in range(n):
+            r = rsi(closes[max(0, i - 119):i + 1])
+            if r is None:
+                out.append(None)
+                continue
+            if not held and r < 30:
+                held = 1
+            elif held and r > 70:
+                held = 0
+            out.append(held)
+        return out
+    raise ApiError(f"未知策略: {strategy}")
+
+
+def max_drawdown(eq):
+    peak, mdd = eq[0], 0.0
+    for x in eq:
+        peak = max(peak, x)
+        mdd = min(mdd, x / peak - 1)
+    return mdd * 100
+
+
+def perf_stats(eq, ts):
+    """eq：净值序列（起点 1），ts：对应时间戳"""
+    if len(eq) < 3:
+        return None
+    rets = [eq[i] / eq[i - 1] - 1 for i in range(1, len(eq))]
+    years = max((ts[-1] - ts[0]) / (365.25 * 86400), 1 / 252)
+    mean = sum(rets) / len(rets)
+    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+    sd = var ** 0.5
+    return {"total": (eq[-1] - 1) * 100, "cagr": (eq[-1] ** (1 / years) - 1) * 100 if eq[-1] > 0 else -100.0,
+            "vol": sd * 252 ** 0.5 * 100, "sharpe": mean / sd * 252 ** 0.5 if sd > 0 else None, "mdd": max_drawdown(eq), "years": years}
+
+
+def run_backtest(closes, ts, strategy, fee_bp=5):
+    pos = positions_for(strategy, closes)
+    start = next((i for i, p in enumerate(pos) if p is not None), None)
+    if start is None or len(closes) - start < 60:
+        raise ApiError("历史数据不足，无法回测")
+    fee = fee_bp / 10000
+    eq, bh, trades = [1.0], [1.0], []
+    entry, entry_eq = (start, 1.0) if pos[start] else (None, None)  # 预热期一结束就持有，也算一笔开仓
+    exposure = 0
+    for i in range(start + 1, len(closes)):
+        r = closes[i] / closes[i - 1] - 1
+        held = pos[i - 1] or 0
+        exposure += held
+        e = eq[-1] * (1 + held * r)
+        if (pos[i] or 0) != held:  # 收盘换仓，扣手续费
+            e *= 1 - fee
+            if pos[i]:
+                entry, entry_eq = i, e
+            elif entry is not None:
+                trades.append({"entry": entry, "exit": i, "ret": (e / entry_eq - 1) * 100})
+                entry = None
+        eq.append(e)
+        bh.append(bh[-1] * (1 + r))
+    open_trade = None
+    if entry is not None:
+        open_trade = {"entry": entry, "ret": (eq[-1] / entry_eq - 1) * 100}
+    t = ts[start:]
+    wins = [x for x in trades if x["ret"] > 0]
+    half = len(eq) // 2
+    halves = []
+    for a, b in ((0, half), (half, len(eq))):
+        seg, segb = eq[a:b], bh[a:b]
+        if len(seg) > 2:
+            st, sb = perf_stats([x / seg[0] for x in seg], t[a:b]), perf_stats([x / segb[0] for x in segb], t[a:b])
+            halves.append({"from": t[a], "to": t[b - 1], "total": st["total"], "bh_total": sb["total"], "mdd": st["mdd"], "sharpe": st["sharpe"]})
+    step = -(-len(eq) // 300)  # 向上取整：最多约 300 个点
+    return {"strategy": strategy, "fee_bp": fee_bp, "start": t[0], "end": t[-1], "days": len(eq) - 1,
+            "stats": perf_stats(eq, t), "bh": perf_stats(bh, t), "exposure": exposure / max(1, len(eq) - 1) * 100,
+            "trades": len(trades), "win_rate": len(wins) / len(trades) * 100 if trades else None,
+            "avg_trade": sum(x["ret"] for x in trades) / len(trades) if trades else None,
+            "open_trade": open_trade, "halves": halves, "in_position": bool(pos[-1]),
+            "series": {"ts": t[::step], "eq": [round(x, 5) for x in eq[::step]], "bh": [round(x, 5) for x in bh[::step]], "pos": [int(p or 0) for p in pos[start:]][::step]},
+            "recent_trades": [{"entry": ts[x["entry"]], "exit": ts[x["exit"]], "ret": x["ret"]} for x in trades[-12:]]}
+
+
+def backtest(sym, strategy="ma_cross", rng="5y", fee_bp=5):
+    if strategy not in STRATEGIES:
+        raise ApiError(f"未知策略: {strategy}")
+    if rng not in BT_RANGES:
+        rng = "5y"
+    d = yahoo_chart(sym, rng, ttl=6 * 3600)
+    out = run_backtest(d["close"], d["ts"], strategy, fee_bp)
+    return {**out, "sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "range": rng, "price": d["close"][-1]}
+
+
+# 统计区间（“波动率锥”）：用过去一年的日对数收益率波动率，假设未来收益率对称、无漂移，给出 N 个交易日后价格的 68% / 95% 区间，
+# 以及按同样假设算出的“到达某个价位”的概率。还会回看过去一年：当时给出的区间实际覆盖了多少比例的结果，用来检验假设靠不靠谱。
+
+HORIZONS = (5, 10, 20, 60)
+
+
+def norm_cdf(x):
+    return 0.5 * (1 + math.erf(x / 2 ** 0.5))
+
+
+def log_returns(closes):
+    return [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes)) if closes[i - 1] > 0 and closes[i] > 0]
+
+
+def stdev(xs):
+    if len(xs) < 2:
+        return None
+    m = sum(xs) / len(xs)
+    return (sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5
+
+
+def vol_cone(closes, target=None, lookback=252):
+    rets = log_returns(closes)
+    if len(rets) < 60:
+        raise ApiError("历史数据不足，无法计算统计区间")
+    sig = stdev(rets[-lookback:])
+    sig20 = stdev(rets[-20:])
+    price = closes[-1]
+    bands = []
+    for h in HORIZONS:
+        s = sig * h ** 0.5
+        bands.append({"h": h, "lo1": price * math.exp(-s), "hi1": price * math.exp(s), "lo2": price * math.exp(-2 * s), "hi2": price * math.exp(2 * s), "sigma": s * 100})
+    # 20 日波动率在过去一年里的百分位：现在是“安静”还是“动荡”
+    hist20 = [stdev(rets[i - 20:i]) for i in range(max(20, len(rets) - lookback), len(rets) + 1)]
+    hist20 = [x for x in hist20 if x]
+    vol_pct = sum(1 for x in hist20 if x < sig20) / len(hist20) * 100 if hist20 and sig20 else None
+    prob = None
+    if target and target > 0:
+        prob = []
+        for h in HORIZONS:
+            s = sig * h ** 0.5
+            z = math.log(target / price) / s
+            end = 1 - norm_cdf(z) if target >= price else norm_cdf(z)  # 到期时在目标价那一侧的概率
+            prob.append({"h": h, "end": end * 100, "touch": min(100.0, 2 * end * 100)})  # 期间内曾触及：反射原理，约为到期概率的两倍
+    # 回看校验：过去一年每一天用当时的波动率给出的 1σ / 2σ 区间，实际有多少比例的结果落在区间内（理论 68% / 95%）
+    coverage = {}
+    for h in (5, 20):
+        inside1 = inside2 = total = 0
+        for i in range(len(closes) - lookback - h, len(closes) - h):
+            if i < lookback + 1:
+                continue
+            s_i = stdev(rets[i - 1 - lookback:i - 1])
+            if not s_i:
+                continue
+            move = abs(math.log(closes[i + h] / closes[i]))
+            total += 1
+            inside1 += move <= s_i * h ** 0.5
+            inside2 += move <= 2 * s_i * h ** 0.5
+        if total >= 30:
+            coverage[h] = {"n": total, "c1": inside1 / total * 100, "c2": inside2 / total * 100}
+    return {"price": price, "sigma_d": sig * 100, "sigma_y": sig * 252 ** 0.5 * 100, "sigma20_y": sig20 * 252 ** 0.5 * 100 if sig20 else None,
+            "vol_pctile": vol_pct, "bands": bands, "target": target, "prob": prob, "coverage": coverage, "n": len(rets[-lookback:])}
+
+
+def forecast(sym, target=None):
+    d = yahoo_chart(sym, "2y", ttl=3600)
+    return {**vol_cone(d["close"], target), "sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "last_ts": d["ts"][-1]}
 
 
 # ---------------------------------------------------------------- 跨资产相关性（日收益率的 Pearson 相关系数）
@@ -2380,6 +2560,11 @@ class Handler(SimpleHTTPRequestHandler):
                 except Exception:  # noqa: BLE001 — 个别品种失败不影响其他
                     pass
             return out
+        if path == "/api/backtest":
+            return backtest(q.get("sym", ""), q.get("strategy", "ma_cross"), q.get("range", "5y"), int(num(q.get("fee"), 0, 100, 5)))
+        if path == "/api/forecast":
+            t = q.get("target")
+            return forecast(q.get("sym", ""), num(t, 0, 1e9) if t not in (None, "") else None)
         if path == "/api/corr":
             return corr(num(q.get("days"), 0, 1000, 60))
         if path == "/api/status":

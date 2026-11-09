@@ -70,6 +70,75 @@ class Indicators(unittest.TestCase):
                     self.assertEqual(d["series"]["rsi"][:14], [None] * 14)
 
 
+class QuantLab(unittest.TestCase):
+    def series(self, n=400, drift=0.0, wiggle=0.0):
+        c = [100.0]
+        for i in range(1, n):
+            c.append(c[-1] * math.exp(drift + wiggle * math.sin(i / 3)))
+        return c, [1_600_000_000 + i * 86400 for i in range(n)]
+
+    def test_buy_and_hold_matches_benchmark_and_fees_apply(self):
+        c, ts = self.series(drift=0.001)
+        r = s.run_backtest(c, ts, "buyhold", fee_bp=0)
+        self.assertAlmostEqual(r["stats"]["total"], r["bh"]["total"])
+        self.assertAlmostEqual(r["stats"]["total"], (c[-1] / c[0] - 1) * 100, places=6)
+        self.assertEqual((r["trades"], r["exposure"], r["in_position"]), (0, 100.0, True))
+        self.assertIsNotNone(r["open_trade"])
+        self.assertEqual(r["stats"]["mdd"], 0.0)  # 单边上涨没有回撤
+        self.assertEqual(len(r["halves"]), 2)
+
+    def test_trend_following_on_a_v_shape(self):
+        # 先跌 220 天再涨 220 天：200 日趋势策略应在下跌段空仓，交易次数很少
+        c = [100 * math.exp(-0.004 * i) for i in range(420)]  # 前 200 天是预热期，之后还有 220 天下跌
+        c += [c[-1] * math.exp(0.004 * i) for i in range(1, 221)]
+        ts = [1_600_000_000 + i * 86400 for i in range(len(c))]
+        r = s.run_backtest(c, ts, "trend200", fee_bp=10)
+        self.assertLess(r["exposure"], 60)
+        self.assertGreater(r["stats"]["mdd"], r["bh"]["mdd"])  # 回撤比买入持有小（数值更接近 0）
+        self.assertLessEqual(r["trades"] + (1 if r["open_trade"] else 0), 3)
+        with self.assertRaises(s.ApiError):
+            s.run_backtest(c[:230], ts[:230], "trend200")  # 预热后不足 60 天
+        with self.assertRaises(s.ApiError):
+            s.run_backtest(c, ts, "nope")
+
+    def test_rsi_mean_reversion_round_trips(self):
+        c = [100.0]
+        for i in range(1, 600):
+            c.append(c[-1] * math.exp(0.01 * math.sin(i / 15)))  # 约 94 天一个周期的大幅震荡：RSI 会反复进出超买 / 超卖
+        ts = [1_600_000_000 + i * 86400 for i in range(600)]
+        r = s.run_backtest(c, ts, "rsi_mr", fee_bp=5)
+        self.assertGreater(r["trades"], 3)
+        self.assertTrue(0 <= r["win_rate"] <= 100)
+        self.assertEqual(len(r["recent_trades"]), min(12, r["trades"]))
+        self.assertLessEqual(len(r["series"]["ts"]), 310)
+
+    def test_perf_stats_and_drawdown(self):
+        self.assertAlmostEqual(s.max_drawdown([1, 2, 1, 1.5, 3]), -50.0)
+        eq = [1 + i * 0.001 for i in range(253)]
+        st = s.perf_stats(eq, [1_600_000_000 + i * 86400 for i in range(253)])
+        self.assertAlmostEqual(st["total"], 25.2)
+        self.assertGreater(st["sharpe"], 10)  # 几乎无波动的稳定上涨
+        self.assertIsNone(s.perf_stats([1, 1], [0, 1]))
+
+    def test_vol_cone_is_symmetric_and_calibrated(self):
+        c, ts = self.series(n=600, wiggle=0.02)
+        f = s.vol_cone(c, target=c[-1])
+        b = f["bands"][0]
+        self.assertAlmostEqual(b["lo1"] * b["hi1"], c[-1] ** 2, places=6)  # 对数对称
+        self.assertLess(f["bands"][0]["sigma"], f["bands"][-1]["sigma"])  # 区间随期限变宽
+        self.assertAlmostEqual(f["bands"][3]["sigma"] / f["bands"][0]["sigma"], (60 / 5) ** 0.5, places=6)
+        for p in f["prob"]:
+            self.assertAlmostEqual(p["end"], 50.0)  # 目标价 = 现价：到期在上方的概率 50%
+            self.assertEqual(p["touch"], 100.0)
+        f2 = s.vol_cone(c, target=c[-1] * 1.5)
+        self.assertLess(f2["prob"][0]["end"], f2["prob"][-1]["end"])  # 期限越长越可能到达
+        self.assertIn(20, f2["coverage"])
+        self.assertTrue(0 <= f2["coverage"][20]["c1"] <= 100)
+        self.assertEqual(s.norm_cdf(0), 0.5)
+        with self.assertRaises(s.ApiError):
+            s.vol_cone(c[:30])
+
+
 class Portfolio(unittest.TestCase):
     QUOTES = {"AAPL": {"name": "Apple", "currency": "USD", "price": 200.0, "abs1d": 2.0, "chg1d": 1.0, "spark": [1, 2]},
               "0700.HK": {"name": "Tencent", "currency": "HKD", "price": 400.0, "abs1d": -4.0, "chg1d": -1.0, "spark": [1]},
