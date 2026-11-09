@@ -650,12 +650,25 @@ def run_backtest(closes, ts, strategy, fee_bp=5):
             "recent_trades": [{"entry": ts[x["entry"]], "exit": ts[x["exit"]], "ret": x["ret"]} for x in trades[-12:]]}
 
 
+BARS = {"2y": 504, "5y": 1260, "10y": None}  # 各区间大约的交易日数
+
+
+def lab_chart(sym, rng="10y"):
+    """量化实验室的三个接口（回测 / 统计区间 / 预测检验）共用同一份 10 年日线，再按需要截取：
+    同一个品种只向 Yahoo 请求一次，内部人分析的 daily_hist 也用这份缓存"""
+    d = yahoo_chart(sym, "10y", ttl=6 * 3600)
+    n = BARS.get(rng)
+    if n and len(d["close"]) > n:
+        d = {**d, "close": d["close"][-n:], "ts": d["ts"][-n:], "volume": d["volume"][-n:]}
+    return d
+
+
 def backtest(sym, strategy="ma_cross", rng="5y", fee_bp=5):
     if strategy not in STRATEGIES:
         raise ApiError(f"未知策略: {strategy}")
     if rng not in BT_RANGES:
         rng = "5y"
-    d = yahoo_chart(sym, rng, ttl=6 * 3600)
+    d = lab_chart(sym, rng)
     out = run_backtest(d["close"], d["ts"], strategy, fee_bp)
     return {**out, "sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "range": rng, "price": d["close"][-1]}
 
@@ -725,7 +738,7 @@ def vol_cone(closes, target=None, lookback=252):
 
 
 def forecast(sym, target=None):
-    d = yahoo_chart(sym, "2y", ttl=3600)
+    d = lab_chart(sym, "2y")  # 波动率看过去一年，回看校验再往前一年：2 年足够
     return {**vol_cone(d["close"], target), "sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "last_ts": d["ts"][-1]}
 
 
@@ -779,8 +792,9 @@ def analog_stats(closes, rows, cur):
     n = len(closes)
     keys_order = (("trend", "mom", "rsi"), ("trend", "mom"), ("trend",))
     cur_state = state_of(cur)
+    states = {i: state_of(rows[i]) for i in range(260, n - SIG_H[-1]) if rows[i]}
     for keys in keys_order:
-        idx = [i for i in range(260, n - SIG_H[-1]) if rows[i] and all(state_of(rows[i])[k] == cur_state[k] for k in keys)]
+        idx = [i for i, st in states.items() if all(st[k] == cur_state[k] for k in keys)]
         if len(idx) >= 40:
             break
     out = {"state": cur_state, "matched_on": list(keys), "n": len(idx), "horizons": []}
@@ -861,7 +875,7 @@ def model_eval(closes, rows, h=20, test_days=252):
     if len(labeled) < 400:
         raise ApiError("历史数据不足，无法检验模型（至少约 3 年）")
     split = n - h - test_days
-    train = [i for i in labeled if i < split]
+    train = [i for i in labeled if i < split - h]  # 训练样本的标签要在检验期开始之前就已知：留出 h 天空档，避免标签泄漏
     test = [i for i in labeled if i >= split]
     if len(train) < 250 or len(test) < 100:
         raise ApiError("历史数据不足，无法检验模型（至少约 3 年）")
@@ -917,7 +931,7 @@ def signals(sym):
     hit = _signals_cache.get(sym)
     if hit and time.time() - hit[0] < 3600:
         return hit[1]
-    d = yahoo_chart(sym, "10y", ttl=6 * 3600)
+    d = lab_chart(sym)
     closes, ts = d["close"], d["ts"]
     rows = feature_rows(closes)
     if not rows[-1]:

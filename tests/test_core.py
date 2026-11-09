@@ -196,6 +196,27 @@ class Signals(unittest.TestCase):
         with self.assertRaises(s.ApiError):
             s.model_eval(c[:500], s.feature_rows(c[:500]))
 
+    def test_training_labels_do_not_leak_into_the_test_period(self):
+        c, _ = self.walk(1200, lambda i, c: 0.01 * math.sin(i / 25))
+        rows = s.feature_rows(c)
+        with mock.patch.object(s, "logit_fit", wraps=s.logit_fit) as fit:
+            m = s.model_eval(c, rows)
+        n, h = len(c), m["h"]
+        split = n - h - 252
+        train_rows = fit.call_args_list[0].args[0]
+        # 第一次拟合用训练期：样本数应等于 split - h 之前的带特征天数，即训练标签都在检验期开始前已知
+        self.assertEqual(len(train_rows), sum(1 for i in range(260, split - h) if rows[i]))
+        self.assertEqual(m["train_n"], len(train_rows))
+
+    def test_lab_chart_slices_a_shared_10y_series(self):
+        chart = {"sym": "X", "name": "X", "currency": "USD", "close": list(range(1, 3001)), "ts": list(range(3000)), "volume": [1] * 3000}
+        with mock.patch.object(s, "yahoo_chart", return_value=chart) as yc:
+            self.assertEqual(len(s.lab_chart("X", "2y")["close"]), 504)
+            self.assertEqual(len(s.lab_chart("X", "5y")["close"]), 1260)
+            self.assertEqual(len(s.lab_chart("X", "10y")["close"]), 3000)
+            self.assertEqual(s.lab_chart("X", "2y")["close"][-1], 3000)  # 截取的是最近的部分
+        self.assertTrue(all(call.args[1] == "10y" for call in yc.call_args_list))  # 不管哪个区间都只请求 10 年那一份
+
     def test_seasonality(self):
         # 每月 1 日涨 10%、其余日子不动 → 每个月的月收益都是正的
         ts, c, day = [], [100.0], datetime(2020, 1, 1, tzinfo=timezone.utc)
