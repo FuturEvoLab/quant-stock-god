@@ -1667,11 +1667,12 @@ def news_accuracy():
     hist = load_json("news_tilt.json", {})
     today = datetime.now(timezone.utc).date().isoformat()
     out = []
+    jobs = {sym: POOL.submit(daily_hist, sym) for sym in NEWS_SYM.values()}  # 5 个品种的 10 年行情并行取
     for a, sym in NEWS_SYM.items():
         row = {"asset": a, "sym": sym, "days": sum(1 for d in hist if a in hist[d]), "signals": 0, "n1": 0, "hit1": 0, "n5": 0, "hit5": 0,
                "base1": None, "base5": None, "since": min(hist) if hist else None}
         try:
-            h = daily_hist(sym)
+            h = jobs[sym].result(timeout=60)
         except Exception:  # noqa: BLE001 — 行情取不到就只显示记录天数
             out.append(row)
             continue
@@ -1883,6 +1884,12 @@ def source_status():
 # ---------------------------------------------------------------- HTTP 服务
 
 class Handler(SimpleHTTPRequestHandler):
+    # HTTP/1.1 长连接：打开页面要请求几十个文件和接口，复用连接省掉每次建连的开销（所有响应都带 Content-Length）；
+    # 空闲连接 60 秒后关闭，不让浏览器保留的连接一直占着线程
+    protocol_version = "HTTP/1.1"
+    timeout = 60
+    LONG_CACHE = ("/fonts/", "/vendor/")  # 字体文件名带版本号、第三方库用 ?v= 区分版本：可以长期缓存，其他文件改了要立刻生效
+
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=STATIC, **kw)
 
@@ -1899,7 +1906,8 @@ class Handler(SimpleHTTPRequestHandler):
     }
 
     def end_headers(self):
-        self.send_header("Cache-Control", "no-cache")
+        path = urllib.parse.urlparse(self.path).path
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable" if path.startswith(self.LONG_CACHE) else "no-cache")
         for k, v in self.SECURITY_HEADERS.items():
             self.send_header(k, v)
         super().end_headers()
@@ -1974,11 +1982,11 @@ class Handler(SimpleHTTPRequestHandler):
             return detail(q.get("sym", ""))
         if path == "/api/ticker":
             out = []
-            for s in ("^GSPC", "^HSI", "GC=F", "CL=F", "^VIX"):
+            for s, fut in [(s, POOL.submit(quote_summary, s)) for s in ("^GSPC", "^HSI", "GC=F", "CL=F", "^VIX")]:
                 try:
-                    x = quote_summary(s)
+                    x = fut.result(timeout=60)
                     out.append({"sym": s, "name": x["name"], "price": x["price"], "chg1d": x["chg1d"]})
-                except ApiError:
+                except Exception:  # noqa: BLE001 — 个别品种失败不影响其他
                     pass
             return out
         if path == "/api/status":

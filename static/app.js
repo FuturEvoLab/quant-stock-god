@@ -124,7 +124,7 @@ $$(".nav .tabs button").forEach((b) => b.addEventListener("click", (e) => {
 function setNavCollapsed(on) {
   $(".app").classList.toggle("nav-collapsed", on);
   try { localStorage.setItem("qs-nav", on ? "1" : "0"); } catch {}
-  setTimeout(() => { moveNavIndicator(); window.cy13?.resize(); }, 420);
+  setTimeout(() => { moveNavIndicator(); if (typeof sm !== "undefined") sm.cy?.resize(); }, 420);
 }
 $("#nav-collapse").addEventListener("click", () => setNavCollapsed(!$(".app").classList.contains("nav-collapsed")));
 try { if (localStorage.getItem("qs-nav") === "1") $(".app").classList.add("nav-collapsed"); } catch {}
