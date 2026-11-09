@@ -10,7 +10,7 @@ Quant Stock God is a **local, single-user tool**. The server binds to `127.0.0.1
 | DNS rebinding (an attacker's domain resolves to 127.0.0.1) | Only `Host: 127.0.0.1:<port>` or `localhost:<port>` is accepted, for API calls and static files alike. |
 | Malicious headlines or feed content containing HTML/JS | All rendered data is escaped, and links from feeds must be `http(s)`. A Content-Security-Policy allows only same-origin script files, so inline scripts and `on*=` handlers cannot run even if escaping were missed. |
 | Clickjacking | `X-Frame-Options: DENY` and `frame-ancestors 'none'` |
-| Hostile or hijacked data sources | Remote responses over 25 MB are rejected, and XML containing entity declarations ("XML bombs") is refused before parsing. |
+| Hostile or hijacked data sources | Remote responses over 25 MB are rejected, before and after gzip decompression (so a small "compression bomb" cannot fill memory). XML with a DOCTYPE or entity declaration ("XML bombs") is refused before parsing; the whole prolog is scanned, so a long comment cannot push the DOCTYPE past the check. SEC accession numbers and document names must match their expected format before they are used in URLs, cache file names or page links. |
 | Malformed input | Symbols, names and numbers are validated and length-limited; NaN and infinity are rejected. Request bodies over 1 MB are rejected. |
 
 These checks are covered by `tests/test_security.py`, which starts a real server on a random port.

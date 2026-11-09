@@ -70,7 +70,7 @@ function eiaChart(series) {
   const band = series.every((p) => p.lo != null)
     ? `<path d="${series.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(p.hi).toFixed(1)}`).join("")}${series.map((p, i) => `L${x(series.length - 1 - i).toFixed(1)} ${y(series[series.length - 1 - i].lo).toFixed(1)}`).join("")}Z" class="band"/>` : "";
   const months = [];
-  series.forEach((p, i) => { if (i && p.d.slice(5, 7) !== series[i - 1].d.slice(5, 7) && ["01", "04", "07", "10"].includes(p.d.slice(5, 7))) months.push(`<text x="${x(i) + 2}" y="${H - 4}">${p.d.slice(2, 7)}</text>`); });
+  series.forEach((p, i) => { if (i && p.d.slice(5, 7) !== series[i - 1].d.slice(5, 7) && ["01", "04", "07", "10"].includes(p.d.slice(5, 7))) months.push(`<text x="${x(i) + 2}" y="${H - 4}">${esc(p.d.slice(2, 7))}</text>`); });
   return `<svg class="cot-chart eia-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${band}${months.join("")}
     <path d="${line("avg")}" class="avg" vector-effect="non-scaling-stroke"/>
     <path d="${line("v")}" fill="none" stroke="var(--accent)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>

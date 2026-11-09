@@ -119,10 +119,28 @@ _cache_lock = threading.Lock()
 MAX_REMOTE_BYTES = 25_000_000
 
 
+def has_doctype(text):
+    """根元素之前是否有 DOCTYPE 声明。XML 规定 DOCTYPE 只能出现在根元素之前，所以跳过空白、注释和处理指令，
+    看到的第一个标签是 <! 就是 DOCTYPE。不能只检查开头固定长度：前面塞一段超长注释就能把 DOCTYPE 推到检查范围之外"""
+    i, n = 0, len(text)
+    while i < n:
+        while i < n and text[i] in " \t\r\n\ufeff":
+            i += 1
+        if text.startswith("<!--", i):
+            j = text.find("-->", i + 4)
+            i = n if j < 0 else j + 3
+        elif text.startswith("<?", i):
+            j = text.find("?>", i + 2)
+            i = n if j < 0 else j + 2
+        else:
+            return text.startswith("<!", i)
+    return False
+
+
 def parse_xml(text):
-    """解析远程 XML（RSS / SEC）。正常的数据不会声明 DTD 实体；有就拒绝，彻底避免“XML 炸弹”之类的实体展开攻击"""
-    if re.search(r"<!(ENTITY|DOCTYPE[^>]*\[)", text[:20000], re.I):
-        raise ApiError("XML 含实体声明，已拒绝解析")
+    """解析远程 XML（RSS / SEC）。正常的数据不会声明 DTD / 实体；有就拒绝，彻底避免“XML 炸弹”之类的实体展开攻击"""
+    if has_doctype(text):
+        raise ApiError("XML 含 DOCTYPE / 实体声明，已拒绝解析")
     return ET.fromstring(re.sub(r"^\s*<\?xml[^>]*\?>", "", text))  # 去掉编码声明后按已解码的文本解析
 
 
@@ -760,10 +778,15 @@ def recent_filings(sub, forms):
     r = sub.get("filings", {}).get("recent", {})
     out = []
     for i, f in enumerate(r.get("form", [])):
-        if f in forms:
-            out.append({"form": f, "acc": r["accessionNumber"][i], "date": r["filingDate"][i],
-                        "report": r.get("reportDate", [""] * (i + 1))[i], "doc": r["primaryDocument"][i]})
+        acc, doc = r["accessionNumber"][i], r["primaryDocument"][i]
+        # 申报号和文件名会拼进 sec.gov 的 URL、缓存文件名和页面链接：格式不对的（数据源异常或被劫持）直接跳过
+        if f in forms and ACC_RE.match(acc) and DOC_RE.match(doc):
+            out.append({"form": f, "acc": acc, "date": r["filingDate"][i], "report": r.get("reportDate", [""] * (i + 1))[i], "doc": doc})
     return out
+
+
+ACC_RE = re.compile(r"^\d{10}-\d{2}-\d{6}$")  # SEC 申报号：0001234567-24-000123
+DOC_RE = re.compile(r"^(?!.*\.\.)[A-Za-z0-9_./-]{1,200}$")  # 文件名（可带 xsl 渲染目录），不允许 ..
 
 
 def strip_ns(root):
@@ -1906,7 +1929,8 @@ class Handler(SimpleHTTPRequestHandler):
     }
 
     def end_headers(self):
-        path = urllib.parse.urlparse(self.path).path
+        # 请求行本身就不合法时（HTTP 版本错误、URL 过长）send_error 在解析出 path 之前就会到这里
+        path = urllib.parse.urlparse(getattr(self, "path", "") or "").path
         self.send_header("Cache-Control", "public, max-age=31536000, immutable" if path.startswith(self.LONG_CACHE) else "no-cache")
         for k, v in self.SECURITY_HEADERS.items():
             self.send_header(k, v)

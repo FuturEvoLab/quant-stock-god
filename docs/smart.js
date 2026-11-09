@@ -6,7 +6,7 @@
 const sm = { sub: "insider", ins: null, f13: null, fund: null, cy: null, layout: null };
 const ACT_TEXT = { new: "新建仓", add: "加仓", reduce: "减仓", exit: "清仓", hold: "持平" };
 const actColor = (a) => ({ new: getVar("--q-new"), add: getVar("--in"), reduce: getVar("--q-reduce"), exit: getVar("--out"), hold: getVar("--q-hold") }[a]);
-const secIndex = (cik, acc) => `https://www.sec.gov/Archives/edgar/data/${cik}/${acc.replace(/-/g, "")}/${acc}-index.htm`;
+const secIndex = (cik, acc) => esc(`https://www.sec.gov/Archives/edgar/data/${cik}/${String(acc).replace(/-/g, "")}/${acc}-index.htm`);  // 已转义，只能放进属性
 const rcell = (v) => (v == null ? `<span class="muted">—</span>` : `<span class="${updn(v)}">${pct(v, 1)}</span>`);
 const roleText = (roles) => (roles || []).map((r) => `<span class="badge">${esc(r)}</span>`).join(" ");
 
@@ -62,7 +62,7 @@ function renderInsider() {
   $("#ins-result").innerHTML = `
   <div class="kpis sm-kpis">
     ${k(esc(d.ticker), `<span class="mono">${d.price != null ? fmtPx(d.price) : "—"}</span>`, esc(d.company))}
-    ${k("扫描申报", d.filings_scanned, d.span[0] ? `${d.span[0]} ~ ${d.span[1]}` : "")}
+    ${k("扫描申报", d.filings_scanned, d.span[0] ? `${esc(d.span[0])} ~ ${esc(d.span[1])}` : "")}
     ${k("公开市场买入", d.events.length, `${d.insiders.length} 位内部人`)}
     ${k("90 天命中率", d.hit90 == null ? "—" : `<span class="${d.hit90 >= 0.5 ? "up" : "down"}">${Math.round(d.hit90 * 100)}%</span>`, `${scored} 笔已满 90 天`)}
     ${k("90 天平均收益", rcell(d.avg90), "买入日收盘价起算")}

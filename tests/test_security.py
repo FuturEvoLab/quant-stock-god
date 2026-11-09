@@ -96,6 +96,34 @@ class Security(unittest.TestCase):
         self.assertEqual(st, 400)
         self.assertNotIn("<SCRIPT>", json.dumps(s.load_json("watchlist.json", [])))
 
+    def test_malformed_request_line_gets_an_error_response(self):
+        """请求行不合法时 send_error 在解析出 path 之前就发响应头，这里不能抛异常，客户端要收到状态行"""
+        import socket
+        for raw, code in ((b"GET / HTTP/9.9\r\nHost: x\r\n\r\n", b"505"), (b"GET /" + b"a" * 70000 + b" HTTP/1.1\r\n\r\n", b"414"), (b"BLAH\r\n\r\n", b"400")):
+            with self.subTest(code=code):
+                c = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+                c.sendall(raw)
+                head = b""
+                while True:  # 读完整个响应再关，不然服务端写响应时会报 Broken pipe
+                    chunk = c.recv(65536)
+                    if not chunk:
+                        break
+                    head += chunk
+                c.close()
+                self.assertTrue(head.startswith(b"HTTP/1.1 " + code), head[:80])
+
+    def test_xml_doctype_after_long_comment_rejected(self):
+        """DOCTYPE 前面塞 30 KB 注释也要被识别出来，不能只检查开头一段"""
+        pad = "<!--" + "x" * 30000 + "-->"
+        evil = pad + '<!DOCTYPE r [<!ENTITY a "AAAA">]><rss><item><title>&a;</title></item></rss>'
+        with self.assertRaises(s.ApiError):
+            s.parse_xml(evil)
+        with self.assertRaises(s.ApiError):
+            s.parse_xml('<?xml version="1.0"?>\n<!-- c --><!DOCTYPE rss SYSTEM "http://evil/x.dtd"><rss/>')
+        # 注释、处理指令、CDATA 里出现的 DOCTYPE 字样属于正文，不是声明
+        ok = s.parse_xml(pad + '<?xml-stylesheet href="a"?><rss><item><title><![CDATA[<!DOCTYPE html> hi]]></title></item></rss>')
+        self.assertEqual(ok.find("item/title").text, "<!DOCTYPE html> hi")
+
     def test_xml_entities_rejected(self):
         bomb = '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa"><!ENTITY b "&a;&a;&a;">]><rss><item><title>&b;</title></item></rss>'
         with self.assertRaises(s.ApiError):
