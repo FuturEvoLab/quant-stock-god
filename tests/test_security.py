@@ -106,6 +106,9 @@ class Security(unittest.TestCase):
         self.assertEqual(st, 400)
         st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": "nope"}), h)
         self.assertEqual(st, 400)
+        st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": [{"sym": "ADDED", "added": "2026-01-01"}]}), h)
+        self.assertEqual(st, 200, data)  # 加入时间字段坏了不影响导入
+        self.assertGreater(next(i for i in s.load_json("watchlist.json", []) if i["sym"] == "ADDED")["added"], 1_700_000_000)
         st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": [{"sym": "msft", "move_pct": 999, "label": "x" * 100, "added": 1700000000}], "managers": [{"cik": "0001067983", "name": "Berkshire"}, {"cik": "abc"}]}), h)
         self.assertEqual(st, 200, data)
         r = json.loads(data)
@@ -120,6 +123,35 @@ class Security(unittest.TestCase):
         # 替换模式
         st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": [{"sym": "TSLA"}], "replace": True}), h)
         self.assertEqual([i["sym"] for i in s.load_json("watchlist.json", [])], ["TSLA"])
+
+    def test_long_cache_only_for_successful_static_files(self):
+        st, h, _ = self.req("GET", "/fonts/fonts.css")
+        self.assertEqual(st, 200)
+        self.assertIn("immutable", h["Cache-Control"])
+        st, h, _ = self.req("GET", "/fonts/missing.woff2")
+        self.assertEqual(st, 404)
+        self.assertEqual(h["Cache-Control"], "no-cache")  # 404 不能被浏览器缓存一年
+        st, h, _ = self.req("GET", "/style.css")
+        self.assertEqual(h["Cache-Control"], "no-cache")
+
+    def test_unread_body_closes_the_connection(self):
+        """被拒绝 / 过大的请求体没被读走时必须关连接，否则长连接上它会被当成下一个请求"""
+        h = {"Content-Type": "application/json", "X-QS-Client": "1", "Content-Length": "2000000"}
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        c.putrequest("POST", "/api/config", skip_host=True)
+        for k, v in {"Host": f"127.0.0.1:{self.port}", **h}.items():
+            c.putheader(k, v)
+        c.endheaders()
+        r = c.getresponse()
+        self.assertEqual(r.status, 400)
+        self.assertEqual(r.getheader("Connection"), "close")
+        r.read()
+        c.close()
+        st, h2, _ = self.req("POST", "/api/config", '{"fred_key":"x"}', {"Content-Type": "application/json"})  # 403：没读 body
+        self.assertEqual((st, h2.get("Connection")), (403, "close"))
+        st, h3, _ = self.write({"finnhub_key": ""})  # 正常读完 body 的请求保持长连接
+        self.assertEqual(st, 200)
+        self.assertIsNone(h3.get("Connection"))
 
     def test_security_headers(self):
         st, h, _ = self.req("GET", "/")

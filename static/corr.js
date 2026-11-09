@@ -5,9 +5,11 @@ const cr = { data: null, days: 60, at: 0, loading: null };
 const CORR_SHORT = { "^GSPC": "SPX", "^IXIC": "NDX", "^HSI": "HSI", "^N225": "N225", "^VIX": "VIX", "^TNX": "US10Y", "DX-Y.NYB": "DXY",
   "GC=F": "GOLD", "SI=F": "SILVER", "CL=F": "WTI", "BZ=F": "BRENT", "HG=F": "COPPER", "NG=F": "NATGAS" };
 
-async function loadCorr(force = false) {
-  if (!force && cr.data && cr.data.days === cr.days && Date.now() - cr.at < 600000) return renderCorr();
+async function loadCorr() {
+  // 相关性只在新的一根日线出来后才会变，市场总览每 5 分钟的强制刷新不用跟着重算，10 分钟内直接复用
+  if (cr.data && cr.data.days === cr.days && Date.now() - cr.at < 600000) return renderCorr();
   if (cr.loading) return cr.loading;
+  const want = cr.days;
   if (!cr.data) $("#mk-corr").innerHTML = `<div class="sm-loading"><div class="scanbar"><i></i></div><p>正在计算相关性…</p></div>`;
   cr.loading = (async () => {
     try {
@@ -16,6 +18,7 @@ async function loadCorr(force = false) {
       renderCorr();
     } catch (e) { $("#mk-corr").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
     cr.loading = null;
+    if (cr.days !== want) loadCorr(); // 请求期间用户切换了窗口：按新窗口再取一次（按请求时的窗口比较，请求失败时不会死循环）
   })();
   return cr.loading;
 }
@@ -57,5 +60,5 @@ $("#corr-range").addEventListener("click", (e) => {
   $$("#corr-range button").forEach((x) => x.classList.toggle("on", x === b));
   loadCorr();
 });
-MARKET_HOOKS.push((force) => loadCorr(force));
+MARKET_HOOKS.push(() => loadCorr());
 RERENDER.push(() => cr.data && renderCorr());

@@ -270,7 +270,8 @@ $("#w-file").addEventListener("change", async (e) => {
   let body;
   try { body = JSON.parse(await f.text()); } catch { return toast("不是有效的 JSON 文件", 4000); }
   if (!Array.isArray(body?.watchlist)) return toast("导入文件格式不正确", 4000);
-  const replace = confirm(`导入 ${body.watchlist.length} 个品种。\n「确定」= 替换本机的自选列表；「取消」= 只添加本机没有的品种。`);
+  if (!confirm(`从 ${f.name} 导入 ${body.watchlist.length} 个品种到自选列表？`)) return;
+  const replace = confirm("替换本机现有的自选列表？\n「确定」= 替换；「取消」= 只添加本机没有的品种。");
   try {
     const r = await api("/api/watchlist/import", { method: "POST", body: { ...body, replace } });
     toast(replace ? `已替换：现有 ${r.watchlist} 个品种` : `已添加 ${r.added} 个品种，共 ${r.watchlist} 个`);
@@ -293,8 +294,9 @@ async function loadDigest(body) {
   try { renderDigest(await api("/api/digest", body ? { method: "POST", body } : {})); } catch (e) { toast(e.message, 4000); }
 }
 $("#dg-on").addEventListener("change", async (e) => {
-  await loadDigest({ enabled: e.target.checked, time: $("#dg-time").value, lang: I18N.lang });
-  toast(e.target.checked ? `已开启每日摘要：每天 ${$("#dg-time").value} 推送` : "已关闭每日摘要");
+  const t = $("#dg-time").value;
+  await loadDigest({ enabled: e.target.checked, lang: I18N.lang, ...(/^\d\d:\d\d$/.test(t) ? { time: t } : {}) });  // 时间框被清空时不传，沿用服务端保存的时间
+  toast(e.target.checked ? `已开启每日摘要：每天 ${$("#dg-time").value || "08:30"} 推送` : "已关闭每日摘要");
 });
 $("#dg-time").addEventListener("change", (e) => e.target.value && loadDigest({ time: e.target.value }));
 $("#dg-run").addEventListener("click", async () => {

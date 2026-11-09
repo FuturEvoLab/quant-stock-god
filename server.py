@@ -484,11 +484,9 @@ def local_fng():
     输入的 5 份日线没变（按抓取时间判断）就直接用上次的结果"""
     charts = [yahoo_chart(s, "2y") for s in ("^GSPC", "^VIX", "TLT", "HYG", "IEF")]
     key = tuple(d.get("fetched") for d in charts)
-    if _fng_memo["val"] and _fng_memo["key"] == key:
-        return _fng_memo["val"]
-    out = _local_fng(*charts)
-    _fng_memo["key"], _fng_memo["val"] = key, out
-    return out
+    if not _fng_memo["val"] or _fng_memo["key"] != key:
+        _fng_memo["key"], _fng_memo["val"] = key, _local_fng(*charts)
+    return dict(_fng_memo["val"])  # 返回副本：调用方会往里加 cnn_error 之类的字段
 
 
 def _local_fng(spx, vix, tlt, hyg, ief):
@@ -614,11 +612,16 @@ def watch_item_from(b, keep_added=False):
         raise ApiError("请输入代码")
     if not re.match(SYM_RE, sym):
         raise ApiError(f"代码格式不正确: {sym[:20]}")
-    added = b.get("added") if keep_added else None
+    added = None
+    if keep_added:
+        try:
+            added = int(num(b.get("added"), 0, 4e9)) or None
+        except ApiError:
+            added = None  # 导入文件里这个字段只是“加入时间”，坏了就用现在
     return {"sym": sym, "label": str(b.get("label") or "").strip()[:40], "move_pct": num(b.get("move_pct"), 0, 100), "vol_mult": num(b.get("vol_mult"), 0, 100),
             "rsi_alert": bool(b.get("rsi_alert", True)), "hi52_alert": bool(b.get("hi52_alert", True)),
             "above": num(b.get("above"), 0, 1e9), "below": num(b.get("below"), 0, 1e9),
-            "added": int(num(added, 0, 4e9)) if added else int(time.time())}
+            "added": added or int(time.time())}
 
 
 def import_backup(b):
@@ -840,7 +843,7 @@ DIGEST_TEXT = {
     "en": {"title": "Quant Stock God · Daily digest", "fng": "F&G", "best": "Watch best", "worst": "Watch worst", "zones": ["Extreme fear", "Fear", "Neutral", "Greed", "Extreme greed"]},
 }
 DIGEST_SYMS = (("^GSPC", "SPX"), ("^IXIC", "NDX"), ("^HSI", "HSI"), ("^VIX", "VIX"), ("GC=F", "GOLD"), ("CL=F", "WTI"))
-_digest = {"last_error": None}
+_digest = {"last_error": None, "retry_at": 0.0}
 _digest_lock = threading.Lock()
 
 
@@ -903,9 +906,13 @@ def digest_tick():
         return
     now = datetime.now()
     hh, mm = (int(x) for x in st["time"].split(":"))
-    if (now.hour, now.minute) < (hh, mm) or load_json("digest.json", {}).get("day") == now.date().isoformat():
+    if (now.hour, now.minute) < (hh, mm) or load_json("digest.json", {}).get("day") == now.date().isoformat() or time.time() < _digest["retry_at"]:
         return
-    run_digest()
+    try:
+        run_digest()
+    except Exception:
+        _digest["retry_at"] = time.time() + 600  # 没有行情数据等失败：10 分钟后再试，不要每 20 秒撞一次
+        raise
 
 
 def digest_status():
@@ -2176,10 +2183,15 @@ class Handler(SimpleHTTPRequestHandler):
         "Cross-Origin-Resource-Policy": "same-origin",
     }
 
+    def send_response(self, code, message=None):
+        self._status = code  # end_headers 据此决定缓存策略：404 之类的错误不能被缓存一年
+        super().send_response(code, message)
+
     def end_headers(self):
         # 请求行本身就不合法时（HTTP 版本错误、URL 过长）send_error 在解析出 path 之前就会到这里
         path = urllib.parse.urlparse(getattr(self, "path", "") or "").path
-        self.send_header("Cache-Control", "public, max-age=31536000, immutable" if path.startswith(self.LONG_CACHE) else "no-cache")
+        long_cache = path.startswith(self.LONG_CACHE) and getattr(self, "_status", 0) in (200, 304)
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable" if long_cache else "no-cache")
         for k, v in self.SECURITY_HEADERS.items():
             self.send_header(k, v)
         super().end_headers()
@@ -2192,6 +2204,10 @@ class Handler(SimpleHTTPRequestHandler):
         if "/api/" in str(args[0] if args else ""):  # 出错时 args[0] 是 HTTPStatus 而不是请求行
             super().log_message(fmt, *args)
 
+    def body_unread(self):
+        """请求带了请求体但还没被读走（被 403 / 400 拒绝、GET 带 body、请求体过大）：长连接上它会被当成下一个请求，必须关连接"""
+        return int(self.headers.get("Content-Length") or 0) > 0 and not getattr(self, "_body_read", False)
+
     def send_json(self, obj, code=200):
         try:
             body = json.dumps(obj, ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -2200,12 +2216,12 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if self.body_unread():
+            self.send_header("Connection", "close")  # 同时把 close_connection 置为 True
         self.end_headers()
         self.wfile.write(body)
 
     def forbid(self):
-        """拒绝请求时还没读请求体：长连接上剩下的请求体会被当成下一个请求，所以回应后直接关闭连接"""
-        self.close_connection = True
         self.send_json({"error": "forbidden"}, 403)
 
     def body_json(self):
@@ -2214,7 +2230,9 @@ class Handler(SimpleHTTPRequestHandler):
             return {}
         if n > 1_000_000:
             raise ApiError("请求体太大")
-        b = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+        raw = self.rfile.read(n)
+        self._body_read = True
+        b = json.loads(raw.decode("utf-8") or "{}")
         if not isinstance(b, dict):
             raise ApiError("请求参数格式不正确: not a JSON object")
         return b
@@ -2228,6 +2246,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.forbid()
         if not url.path.startswith("/api/"):
             if method == "GET":
+                if self.body_unread():
+                    self.close_connection = True
                 return super().do_GET()
             return self.send_json({"error": "not found"}, 404)
         # 跨站页面带来的 Origin 一律拒绝；所有写操作还必须带自定义请求头 X-QS-Client 并且是 JSON——
