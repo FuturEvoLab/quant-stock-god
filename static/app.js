@@ -5,7 +5,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const getVar = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 
-const state = { watch: [], rows: [], cfg: {} };
+const state = { watch: [], rows: [], cfg: {}, sort: null };
+try { state.sort = JSON.parse(localStorage.getItem("qs-wsort") || "null"); } catch {}
 const FLAG_TEXT = { move: "价格异动", volume: "放量", rsi_hi: "RSI 超买", rsi_lo: "RSI 超卖", hi52: "52 周新高", lo52: "52 周新低", above: "升破目标价", below: "跌破目标价" };
 
 // ---------------------------------------------------------------- 工具函数
@@ -182,14 +183,26 @@ function renderWatch() {
   $("#nav-new").hidden = !hits;
   $("#nav-new").textContent = hits;
   if (state.rowsAt) $("#w-upd").textContent = `更新于 ${fmtTime(state.rowsAt / 1000).slice(11)}`;
+  // 点表头排序；排序键为空的行（获取失败）排最后
+  const sk = state.sort?.key, sd = state.sort?.dir || 1;
+  const list = [...state.watch];
+  if (sk) list.sort((a, b) => {
+    const va = sk === "sym" ? a.sym : bySym[a.sym]?.[sk], vb = sk === "sym" ? b.sym : bySym[b.sym]?.[sk];
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return (typeof va === "string" ? va.localeCompare(vb) : va - vb) * sd;
+  });
+  const th = (key, text, cls = "", title = "") => `<th class="${cls} sortable ${sk === key ? (sd > 0 ? "asc" : "desc") : ""}" data-sort="${key}" ${title ? `title="${title}"` : ""}>${text}</th>`;
   $("#watch-table").innerHTML = state.watch.length
-    ? `<tr><th>代码</th><th>名称</th><th class="num">价格</th><th class="num">1D</th><th class="num">1W</th><th class="num">1M</th><th class="num" title="盘中按交易时段进度折算成全天预估量">成交量 / 20 日均量</th><th class="num" title="14 日相对强弱指数：≥70 超买，≤30 超卖">RSI</th><th title="现价在 52 周最低价与最高价之间的位置（按收盘价）">52 周区间</th><th>2 个月走势</th><th class="num">阈值</th><th>状态</th><th></th></tr>` +
-      state.watch.map((w) => {
+    ? `<tr>${th("sym", "代码")}<th>名称</th>${th("price", "价格", "num")}${th("chg1d", "1D", "num")}${th("chg1w", "1W", "num")}${th("chg1m", "1M", "num")}${th("rs1m", "vs SPX · 1M", "num", "相对强弱：1 个月涨跌幅减去标普 500 同期涨跌幅（百分点）")}${th("vol_ratio", "成交量 / 20 日均量", "num", "盘中按交易时段进度折算成全天预估量")}${th("rsi14", "RSI", "num", "14 日相对强弱指数：≥70 超买，≤30 超卖")}${th("pos52", "52 周区间", "", "现价在 52 周最低价与最高价之间的位置（按收盘价）")}<th>2 个月走势</th><th class="num">阈值</th><th>状态</th><th></th></tr>` +
+      list.map((w) => {
         const r = bySym[w.sym] || {};
         const flags = (r.flags || []).map((f) => `<span class="badge q-flag ${f}">${FLAG_TEXT[f] || f}</span>`).join(" ");
         return `<tr class="${r.flags?.length ? "q-hit" : ""}" data-sym="${esc(w.sym)}" title="点击查看详情"><td><b class="mono">${esc(w.sym)}</b></td><td>${esc(w.label || r.name || "")}</td>
           <td class="num mono">${r.price != null ? fmtPx(r.price) : "—"} <span class="muted">${esc(r.currency || "")}</span></td>
           <td class="num mk-chg ${updn(r.chg1d)}">${pct(r.chg1d)}</td><td class="num mk-chg ${updn(r.chg1w)}">${pct(r.chg1w)}</td><td class="num mk-chg ${updn(r.chg1m)}">${pct(r.chg1m)}</td>
+          <td class="num mono ${updn(r.rs1m)}">${r.rs1m != null ? `${r.rs1m >= 0 ? "+" : ""}${r.rs1m.toFixed(1)} pt` : "—"}</td>
           <td class="num">${r.vol_ratio != null ? `<b class="${r.vol_ratio >= (w.vol_mult || 99) ? "up" : ""}">×${r.vol_ratio.toFixed(2)}</b> <span class="muted">${fmtNum(r.volume)}</span>${r.vol_projected ? `<sup class="muted" title="盘中按交易时段进度折算成全天预估量">*</sup>` : ""}` : `<span class="muted">—</span>`}</td>
           <td class="num mono ${r.rsi14 >= 70 ? "down" : r.rsi14 <= 30 ? "up" : ""}">${r.rsi14 != null ? r.rsi14.toFixed(0) : "—"}</td>
           <td>${r.pos52 != null ? `<div class="q-r52" title="${fmtPx(r.lo52)} – ${fmtPx(r.hi52)}"><i style="left:${r.pos52.toFixed(1)}%"></i></div>` : `<span class="muted">—</span>`}</td>
@@ -212,6 +225,14 @@ $("#watch-form").addEventListener("submit", async (e) => {
   await loadWatch();
 });
 $("#watch-table").addEventListener("click", async (e) => {
+  const sortTh = e.target.closest("th[data-sort]");
+  if (sortTh) {
+    const key = sortTh.dataset.sort;
+    const first = key === "sym" ? 1 : -1; // 代码列先升序，数字列先降序；再点反向，第三次取消排序
+    state.sort = state.sort?.key !== key ? { key, dir: first } : state.sort.dir === first ? { key, dir: -first } : null;
+    try { localStorage.setItem("qs-wsort", JSON.stringify(state.sort)); } catch {}
+    return renderWatch();
+  }
   const del = e.target.closest("[data-wdel]"), ed = e.target.closest("[data-wedit]");
   if (del && confirm("从自选列表删除？")) {
     await api(`/api/watchlist?sym=${encodeURIComponent(del.dataset.wdel)}`, { method: "DELETE" });
@@ -227,8 +248,66 @@ $("#watch-table").addEventListener("click", async (e) => {
   }
 });
 $("#w-refresh").addEventListener("click", () => refreshWatch());
-TAB_LOADERS.watch = () => { loadAlerts(); if (!state.rowsAt || Date.now() - state.rowsAt > 120000) refreshWatch(); };
+TAB_LOADERS.watch = () => { loadAlerts(); loadDigest(); if (!state.rowsAt || Date.now() - state.rowsAt > 120000) refreshWatch(); };
 setInterval(() => { if (!document.hidden) refreshWatch(); }, 300000);
+
+// 导出 / 导入：自选列表 + 13F 基金列表（JSON，不含 API Key），用于备份或在多台电脑之间同步
+$("#w-export").addEventListener("click", async () => {
+  try {
+    const d = await api("/api/watchlist/export");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: "application/json" }));
+    a.download = `quant-stock-god-backup-${fmtTime(Date.now() / 1000, false)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (e) { toast(e.message, 4000); }
+});
+$("#w-import").addEventListener("click", () => $("#w-file").click());
+$("#w-file").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  let body;
+  try { body = JSON.parse(await f.text()); } catch { return toast("不是有效的 JSON 文件", 4000); }
+  if (!Array.isArray(body?.watchlist)) return toast("导入文件格式不正确", 4000);
+  const replace = confirm(`导入 ${body.watchlist.length} 个品种。\n「确定」= 替换本机的自选列表；「取消」= 只添加本机没有的品种。`);
+  try {
+    const r = await api("/api/watchlist/import", { method: "POST", body: { ...body, replace } });
+    toast(replace ? `已替换：现有 ${r.watchlist} 个品种` : `已添加 ${r.added} 个品种，共 ${r.watchlist} 个`);
+    await loadWatch();
+    if (typeof loadManagers === "function" && r.managers_added) loadManagers().catch(() => {});
+  } catch (err) { toast(err.message, 5000); }
+});
+
+// 每日摘要通知
+function renderDigest(st) {
+  $("#dg-on").checked = st.enabled;
+  if (document.activeElement !== $("#dg-time")) $("#dg-time").value = st.time;
+  const bits = [];
+  if (st.last?.ts) bits.push(`上次 ${fmtTime(st.last.ts).slice(5)}`);
+  if (st.last_error) bits.push(`失败：${st.last_error}`);
+  $("#dg-info").textContent = bits.join(" · ");
+  $("#dg-info").title = st.last?.text || "";
+}
+async function loadDigest(body) {
+  try { renderDigest(await api("/api/digest", body ? { method: "POST", body } : {})); } catch (e) { toast(e.message, 4000); }
+}
+$("#dg-on").addEventListener("change", async (e) => {
+  await loadDigest({ enabled: e.target.checked, time: $("#dg-time").value, lang: I18N.lang });
+  toast(e.target.checked ? `已开启每日摘要：每天 ${$("#dg-time").value} 推送` : "已关闭每日摘要");
+});
+$("#dg-time").addEventListener("change", (e) => e.target.value && loadDigest({ time: e.target.value }));
+$("#dg-run").addEventListener("click", async () => {
+  const b = $("#dg-run");
+  b.disabled = true;
+  try {
+    await api("/api/digest", { method: "POST", body: { lang: I18N.lang } });
+    const r = await api("/api/digest/run", { method: "POST" });
+    renderDigest(r);
+    toast(`已发送：${r.sent.text}`, 6000);
+  } catch (e) { toast(e.message, 5000); }
+  b.disabled = false;
+});
 
 // ---------------------------------------------------------------- 后台异动提醒（服务端定时检查 + macOS 通知）
 

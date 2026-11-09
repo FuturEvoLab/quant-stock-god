@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8767"))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
@@ -67,7 +67,7 @@ def save_json(name, value):
     tmp = f"{path}.{threading.get_ident()}.tmp"  # 每个线程用自己的临时文件，并发写同一个文件时不会互相踩
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(value, f, ensure_ascii=False)
-    if name == "config.json":  # 里面有 API Key 和邮箱：只允许本人读写（exFAT 等不支持权限的磁盘上会被忽略）
+    if name in ("config.json", "secrets.json"):  # 密钥和邮箱只允许本人读写（exFAT 等不支持权限的磁盘上会被忽略）
         try:
             os.chmod(tmp, 0o600)
         except OSError:
@@ -80,6 +80,8 @@ def cache_name(kind, key):
 
 
 KEY_FIELDS = ("fred_key", "eia_key", "finnhub_key", "sec_email")
+KEY_ENV = (("fred_key", "FRED_API_KEY"), ("eia_key", "EIA_API_KEY"), ("finnhub_key", "FINNHUB_API_KEY"), ("sec_email", "SEC_EMAIL"))
+SYM_RE = r"^[A-Z0-9^=.\-]{1,20}$"
 
 
 def num(v, lo, hi, default=0.0):
@@ -104,11 +106,29 @@ def finite(o):
 
 
 def config():
+    """偏好设置（config.json）+ 密钥（secrets.json）。密钥单独放一个文件，这样同步 data/ 目录时只需排除 secrets.json；
+    1.1 及更早版本把密钥写在 config.json 里，启动时 migrate_secrets() 会搬走，这里也兼容还没搬的情况"""
     cfg = load_json("config.json", {})
-    # 环境变量优先，方便临时使用
-    for k, env in (("fred_key", "FRED_API_KEY"), ("eia_key", "EIA_API_KEY"), ("finnhub_key", "FINNHUB_API_KEY"), ("sec_email", "SEC_EMAIL")):
-        cfg[k] = os.environ.get(env) or cfg.get(k, "")
+    sec = load_json("secrets.json", {})
+    for k, env in KEY_ENV:  # 环境变量优先，方便临时使用
+        cfg[k] = os.environ.get(env) or sec.get(k) or cfg.get(k, "")
     return cfg
+
+
+def migrate_secrets():
+    """把 config.json 里的密钥搬到 secrets.json（只在启动时做一次）"""
+    with _store_lock:
+        cfg = load_json("config.json", {})
+        if not any(cfg.get(k) for k in KEY_FIELDS):
+            return False
+        sec = load_json("secrets.json", {})
+        for k in KEY_FIELDS:
+            if cfg.get(k) and not sec.get(k):
+                sec[k] = cfg[k]
+            cfg.pop(k, None)
+        save_json("secrets.json", sec)
+        save_json("config.json", cfg)
+        return True
 
 
 # ---------------------------------------------------------------- HTTP 工具
@@ -455,10 +475,23 @@ def pct_rank(vals, x):
     return bisect.bisect_left(s, x) / len(s) * 100 + (bisect.bisect_right(s, x) - bisect.bisect_left(s, x)) / len(s) * 50
 
 
+_fng_memo = {"key": None, "val": None}
+
+
 def local_fng():
     """合成情绪指数 0~100：动量（标普 vs 125 日均线）、波动（VIX vs 50 日均线，反向）、
-    避险需求（标普 vs 长债 20 日收益差）、垃圾债需求（HYG vs IEF 20 日收益差）。各项按近一年百分位换算后取平均。"""
-    spx, vix, tlt, hyg, ief = (yahoo_chart(s, "2y") for s in ("^GSPC", "^VIX", "TLT", "HYG", "IEF"))
+    避险需求（标普 vs 长债 20 日收益差）、垃圾债需求（HYG vs IEF 20 日收益差）。各项按近一年百分位换算后取平均。
+    输入的 5 份日线没变（按抓取时间判断）就直接用上次的结果"""
+    charts = [yahoo_chart(s, "2y") for s in ("^GSPC", "^VIX", "TLT", "HYG", "IEF")]
+    key = tuple(d.get("fetched") for d in charts)
+    if _fng_memo["val"] and _fng_memo["key"] == key:
+        return _fng_memo["val"]
+    out = _local_fng(*charts)
+    _fng_memo["key"], _fng_memo["val"] = key, out
+    return out
+
+
+def _local_fng(spx, vix, tlt, hyg, ief):
 
     def by_day(d):
         return {datetime.fromtimestamp(t, timezone.utc).date().isoformat(): c for t, c in zip(d["ts"], d["close"])}
@@ -574,6 +607,57 @@ DEFAULT_WATCH = [
 ]
 
 
+def watch_item_from(b, keep_added=False):
+    """把请求 / 导入文件里的一条自选整理成标准格式，不合法的代码直接报错"""
+    sym = str(b.get("sym") or "").strip().upper()
+    if not sym:
+        raise ApiError("请输入代码")
+    if not re.match(SYM_RE, sym):
+        raise ApiError(f"代码格式不正确: {sym[:20]}")
+    added = b.get("added") if keep_added else None
+    return {"sym": sym, "label": str(b.get("label") or "").strip()[:40], "move_pct": num(b.get("move_pct"), 0, 100), "vol_mult": num(b.get("vol_mult"), 0, 100),
+            "rsi_alert": bool(b.get("rsi_alert", True)), "hi52_alert": bool(b.get("hi52_alert", True)),
+            "above": num(b.get("above"), 0, 1e9), "below": num(b.get("below"), 0, 1e9),
+            "added": int(num(added, 0, 4e9)) if added else int(time.time())}
+
+
+def import_backup(b):
+    """导入导出文件：自选 + 13F 基金列表。merge（默认）只添加本机没有的；replace 整体替换"""
+    wl, ms, replace = b.get("watchlist"), b.get("managers"), bool(b.get("replace"))
+    if not isinstance(wl, list) or len(wl) > 200 or not all(isinstance(x, dict) for x in wl):
+        raise ApiError("导入文件格式不正确")
+    items, seen = [], set()
+    for x in wl:
+        it = watch_item_from(x, keep_added=True)
+        if it["sym"] not in seen:
+            seen.add(it["sym"])
+            items.append(it)
+    good = []
+    for m in (ms if isinstance(ms, list) else [])[:100]:
+        if not isinstance(m, dict):
+            continue
+        try:
+            cik = int(str(m.get("cik", "")).strip().lstrip("0") or 0)
+        except ValueError:
+            continue
+        if cik:
+            good.append({"cik": cik, "name": str(m.get("name") or "").strip()[:60] or f"CIK {cik}"})
+    with _store_lock:
+        cur = watchlist()
+        have = {c["sym"] for c in cur}
+        new_items = items if replace else cur + [i for i in items if i["sym"] not in have]
+        save_json("watchlist.json", new_items)
+        added = len(new_items) if replace else len(new_items) - len(cur)
+        m_added = 0
+        if good:
+            curm = managers()
+            havem = {c["cik"] for c in curm}
+            new_m = good if replace else curm + [g for g in good if g["cik"] not in havem]
+            m_added = len(new_m) if replace else len(new_m) - len(curm)
+            save_json("managers.json", new_m)
+    return {"watchlist": len(new_items), "added": added, "managers_added": m_added, "replaced": replace}
+
+
 def watchlist():
     items = load_json("watchlist.json", None)
     if items is None:
@@ -618,6 +702,7 @@ def refresh_watchlist(swr=True):
     with _store_lock:
         items = watchlist()
     jobs = [(i, POOL.submit(check_item, i, swr)) for i in items]
+    spx_job = POOL.submit(quote_summary, "^GSPC", "2y", swr)  # 相对强弱的基准
     rows = []
     for item, fut in jobs:
         try:
@@ -625,6 +710,12 @@ def refresh_watchlist(swr=True):
         except Exception as e:  # noqa: BLE001
             rows.append({"sym": item["sym"], "label": item.get("label") or "", "error": str(e)[:160],
                          "move_pct": item.get("move_pct"), "vol_mult": item.get("vol_mult"), "flags": []})
+    try:
+        spx = spx_job.result(timeout=60)
+    except Exception:  # noqa: BLE001 — 基准取不到就不算相对强弱
+        spx = None
+    for r in rows:  # 相对强弱：1 个月涨跌幅减去标普同期涨跌幅（百分点）
+        r["rs1m"] = r["chg1m"] - spx["chg1m"] if spx and spx.get("chg1m") is not None and r.get("chg1m") is not None else None
     return rows
 
 
@@ -742,6 +833,85 @@ def run_alerts():
         _alert_lock.release()
 
 
+# ---- 每日摘要：每天到设定时间（本机时区）推送一条系统通知，概括主要指数 / 商品、恐惧贪婪和自选里最强 / 最弱的品种
+DIGEST_TEXT = {
+    "zh": {"title": "量化股神 · 每日摘要", "fng": "恐惧贪婪", "best": "自选最强", "worst": "自选最弱", "zones": ["极度恐慌", "恐慌", "中性", "贪婪", "极度贪婪"]},
+    "ja": {"title": "量化株神 · デイリーサマリー", "fng": "恐怖と強欲", "best": "ウォッチ最強", "worst": "ウォッチ最弱", "zones": ["極度の恐怖", "恐怖", "中立", "強欲", "極度の強欲"]},
+    "en": {"title": "Quant Stock God · Daily digest", "fng": "F&G", "best": "Watch best", "worst": "Watch worst", "zones": ["Extreme fear", "Fear", "Neutral", "Greed", "Extreme greed"]},
+}
+DIGEST_SYMS = (("^GSPC", "SPX"), ("^IXIC", "NDX"), ("^HSI", "HSI"), ("^VIX", "VIX"), ("GC=F", "GOLD"), ("CL=F", "WTI"))
+_digest = {"last_error": None}
+_digest_lock = threading.Lock()
+
+
+def fng_zone(v):
+    return 0 if v <= 24 else 1 if v <= 44 else 2 if v <= 55 else 3 if v <= 74 else 4
+
+
+def digest_text(mk, rows, lang):
+    T = DIGEST_TEXT.get(lang, DIGEST_TEXT["en"])
+    q = {x["sym"]: x for x in (mk.get("indices") or []) + (mk.get("commods") or [])}
+    parts = []
+    for sym, label in DIGEST_SYMS:
+        x = q.get(sym)
+        if not x or x.get("chg1d") is None:
+            continue
+        parts.append(f"VIX {x['price']:.1f}" if sym == "^VIX" else f"{label} {x['chg1d']:+.1f}%")
+    if mk.get("fng"):
+        v = mk["fng"]["now"]
+        parts.append(f"{T['fng']} {v} {T['zones'][fng_zone(v)]}")
+    ok = [r for r in rows if r.get("chg1d") is not None and not r.get("error")]
+    if ok:
+        best, worst = max(ok, key=lambda r: r["chg1d"]), min(ok, key=lambda r: r["chg1d"])
+        parts.append(f"{T['best']} {best['sym']} {best['chg1d']:+.1f}%")
+        if worst is not best:
+            parts.append(f"{T['worst']} {worst['sym']} {worst['chg1d']:+.1f}%")
+    return T["title"], " · ".join(parts)
+
+
+def digest_settings():
+    cfg = load_json("config.json", {})
+    t = str(cfg.get("digest_time") or "08:30")
+    if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", t):
+        t = "08:30"
+    return {"enabled": bool(cfg.get("digest_enabled")), "time": t, "lang": cfg.get("alert_lang") or "en", "sound": cfg.get("alert_sound", True)}
+
+
+def run_digest():
+    """生成并推送一次摘要；返回记录，正在生成时返回 None"""
+    if not _digest_lock.acquire(blocking=False):
+        return None
+    try:
+        st = digest_settings()
+        mk, rows = market(), refresh_watchlist()
+        title, text = digest_text(mk, rows, st["lang"])
+        if not text:
+            raise ApiError("暂时没有行情数据，无法生成摘要")
+        ok, err = notify(title, text, st["sound"])
+        rec = {"ts": int(time.time()), "day": datetime.now().date().isoformat(), "title": title, "text": text, "ok": ok, "error": (err or None) if not ok else None}
+        with _store_lock:
+            save_json("digest.json", rec)
+        _digest["last_error"] = rec["error"]
+        return rec
+    finally:
+        _digest_lock.release()
+
+
+def digest_tick():
+    st = digest_settings()
+    if not st["enabled"]:
+        return
+    now = datetime.now()
+    hh, mm = (int(x) for x in st["time"].split(":"))
+    if (now.hour, now.minute) < (hh, mm) or load_json("digest.json", {}).get("day") == now.date().isoformat():
+        return
+    run_digest()
+
+
+def digest_status():
+    return {**digest_settings(), "last": load_json("digest.json", None), "running": _digest_lock.locked(), "last_error": _digest["last_error"]}
+
+
 def alert_loop():
     while True:
         time.sleep(20)
@@ -749,6 +919,10 @@ def alert_loop():
             tilt_loop_tick()
         except Exception:  # noqa: BLE001 — 记录失败不影响提醒
             pass
+        try:
+            digest_tick()
+        except Exception as e:  # noqa: BLE001
+            _digest["last_error"] = f"{type(e).__name__}: {e}"
         try:  # 重大新闻提醒：新闻源缓存 15 分钟，所以每 15 分钟查一次
             if news_alert_settings()["enabled"]:
                 now = time.time()
@@ -989,11 +1163,11 @@ DEFAULT_MANAGERS = [
 
 
 def managers():
+    """调用方负责持有 _store_lock（和 watchlist() 一样；锁不可重入，这里不能再加）"""
     m = load_json("managers.json", None)
     if m is None:
         m = DEFAULT_MANAGERS
-        with _store_lock:
-            save_json("managers.json", m)
+        save_json("managers.json", m)
     return m
 
 
@@ -1067,7 +1241,8 @@ def manager_13f(m):
 
 
 def all_13f():
-    ms = managers()
+    with _store_lock:
+        ms = managers()
     jobs = [(m, SEC_POOL.submit(manager_13f, m)) for m in ms]
     funds, errors = [], {}
     for m, fut in jobs:
@@ -1933,8 +2108,19 @@ def autostart_status():
     return False
 
 
+_ver = {"at": 0.0, "val": None}
+
+
 def code_version():
-    """服务端代码和界面文件的最后修改时间：网页据此提示“需要重启 / 需要刷新”"""
+    """服务端代码和界面文件的最后修改时间：网页据此提示“需要重启 / 需要刷新”。每个打开的页面每 15 秒问一次，结果缓存 5 秒，
+    多个标签页同时开着时不用反复遍历目录"""
+    if _ver["val"] and time.time() - _ver["at"] < 5:
+        return _ver["val"]
+    _ver["val"], _ver["at"] = _code_version(), time.time()
+    return _ver["val"]
+
+
+def _code_version():
     def newest(paths):
         return max((os.path.getmtime(p) for p in paths if os.path.exists(p)), default=0)
     static = [os.path.join(dp, f) for dp, _, fs in os.walk(STATIC) for f in fs if f.endswith((".js", ".css", ".html")) and not f.startswith("._")]
@@ -2017,6 +2203,11 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def forbid(self):
+        """拒绝请求时还没读请求体：长连接上剩下的请求体会被当成下一个请求，所以回应后直接关闭连接"""
+        self.close_connection = True
+        self.send_json({"error": "forbidden"}, 403)
+
     def body_json(self):
         n = int(self.headers.get("Content-Length") or 0)
         if n <= 0:
@@ -2034,7 +2225,7 @@ class Handler(SimpleHTTPRequestHandler):
         port = self.server.server_address[1]
         local = {f"127.0.0.1:{port}", f"localhost:{port}"}
         if self.headers.get("Host") not in local:
-            return self.send_json({"error": "forbidden"}, 403)
+            return self.forbid()
         if not url.path.startswith("/api/"):
             if method == "GET":
                 return super().do_GET()
@@ -2043,12 +2234,12 @@ class Handler(SimpleHTTPRequestHandler):
         # 跨站页面要加自定义请求头必须先经过浏览器预检，而本服务不响应预检，所以伪造不了（双重防 CSRF）
         origin = self.headers.get("Origin")
         if origin and origin.split("://", 1)[-1] not in local:
-            return self.send_json({"error": "forbidden"}, 403)
+            return self.forbid()
         if method != "GET":
             if self.headers.get("X-QS-Client") != "1":
-                return self.send_json({"error": "forbidden"}, 403)
+                return self.forbid()
             if int(self.headers.get("Content-Length") or 0) > 0 and not (self.headers.get("Content-Type") or "").startswith("application/json"):
-                return self.send_json({"error": "forbidden"}, 403)
+                return self.forbid()
         q = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
         try:
             self.send_json(self.api(method, url.path, q))
@@ -2089,16 +2280,8 @@ class Handler(SimpleHTTPRequestHandler):
             with _store_lock:
                 items = watchlist()
                 if method == "POST":
-                    b = self.body_json()
-                    sym = (b.get("sym") or "").strip().upper()
-                    if not sym:
-                        raise ApiError("请输入代码")
-                    if not re.match(r"^[A-Z0-9^=.\-]{1,20}$", sym):
-                        raise ApiError(f"代码格式不正确: {sym[:20]}")
-                    item = {"sym": sym, "label": str(b.get("label") or "").strip()[:40], "move_pct": num(b.get("move_pct"), 0, 100),
-                            "vol_mult": num(b.get("vol_mult"), 0, 100), "rsi_alert": bool(b.get("rsi_alert", True)),
-                            "hi52_alert": bool(b.get("hi52_alert", True)), "above": num(b.get("above"), 0, 1e9), "below": num(b.get("below"), 0, 1e9),
-                            "added": int(time.time())}
+                    item = watch_item_from(self.body_json())
+                    sym = item["sym"]
                     old = next((i for i in items if i["sym"] == sym), None)
                     if old:
                         old.update({k: item[k] for k in ("label", "move_pct", "vol_mult", "rsi_alert", "hi52_alert", "above", "below")})
@@ -2113,6 +2296,11 @@ class Handler(SimpleHTTPRequestHandler):
             return items
         if path == "/api/watchlist/refresh":
             return refresh_watchlist()
+        if path == "/api/watchlist/export":
+            with _store_lock:
+                return {"app": "quant-stock-god", "version": VERSION, "exported": int(time.time()), "watchlist": watchlist(), "managers": managers()}
+        if path == "/api/watchlist/import" and method == "POST":
+            return import_backup(self.body_json())
 
         if path == "/api/alerts":
             if method == "POST":
@@ -2141,6 +2329,29 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/alerts/run" and method == "POST":
             found = run_alerts()
             return {"found": found or [], "busy": found is None, **alert_status()}
+        if path == "/api/digest":
+            if method == "POST":
+                b = self.body_json()
+                with _store_lock:
+                    cfg = load_json("config.json", {})
+                    if "enabled" in b:
+                        cfg["digest_enabled"] = bool(b["enabled"])
+                    if "time" in b:
+                        t = str(b["time"]).strip()
+                        if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", t):
+                            raise ApiError("时间格式不正确")
+                        cfg["digest_time"] = t
+                    if b.get("lang") in ALERT_TEXT:
+                        cfg["alert_lang"] = b["lang"]
+                    save_json("config.json", cfg)
+            return digest_status()
+        if path == "/api/digest/run" and method == "POST":
+            rec = run_digest()
+            if rec is None:
+                raise ApiError("正在生成摘要，请稍候")
+            if not rec["ok"]:
+                raise ApiError(f"系统通知失败: {rec['error'] or '未知错误'}")
+            return {**digest_status(), "sent": rec}
 
         if path == "/api/insider":
             return insider_buys(q.get("ticker", ""), q.get("limit", 150))
@@ -2204,14 +2415,19 @@ class Handler(SimpleHTTPRequestHandler):
             if method == "POST":
                 b = self.body_json()
                 with _store_lock:
-                    cfg = load_json("config.json", {})
+                    sec = load_json("secrets.json", {})
                     for k in KEY_FIELDS:
                         if k in b:
                             v = str(b[k]).strip()[:200]
                             if k == "sec_email" and v and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
                                 raise ApiError("邮箱格式不正确")
-                            cfg[k] = v
-                    save_json("config.json", cfg)
+                            sec[k] = v
+                    save_json("secrets.json", sec)
+                    cfg = load_json("config.json", {})
+                    if any(k in cfg for k in KEY_FIELDS):  # 旧版本留在 config.json 里的密钥一并清掉
+                        for k in KEY_FIELDS:
+                            cfg.pop(k, None)
+                        save_json("config.json", cfg)
             cfg = config()
             return {k: bool(cfg.get(k)) for k in KEY_FIELDS}  # 只返回是否已配置，不回显内容
         raise ApiError(f"未知接口: {method} {path}")
@@ -2259,6 +2475,10 @@ def prewarm():
 
 def main():
     os.makedirs(CACHE, exist_ok=True)
+    try:
+        migrate_secrets()
+    except OSError:
+        pass
     # 无控制台运行（Windows 的 pythonw、开机自启）时 stdout / stderr 是 None，请求日志一写就报错：改写到 data/server.log
     if sys.stdout is None or sys.stderr is None:
         log = open(os.path.join(DATA, "server.log"), "a", encoding="utf-8", buffering=1)

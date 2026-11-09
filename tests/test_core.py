@@ -70,6 +70,60 @@ class Indicators(unittest.TestCase):
                     self.assertEqual(d["series"]["rsi"][:14], [None] * 14)
 
 
+class Digest(unittest.TestCase):
+    def test_text(self):
+        mk = {"indices": [{"sym": "^GSPC", "price": 5000, "chg1d": 0.84}, {"sym": "^VIX", "price": 15.23, "chg1d": -3}, {"sym": "^HSI", "price": 1, "chg1d": None}],
+              "commods": [{"sym": "GC=F", "price": 2000, "chg1d": -0.46}], "fng": {"now": 62}}
+        rows = [{"sym": "NVDA", "chg1d": 4.21}, {"sym": "AAPL", "chg1d": -1.1}, {"sym": "BAD", "error": "x"}]
+        title, text = s.digest_text(mk, rows, "en")
+        self.assertEqual(title, "Quant Stock God · Daily digest")
+        self.assertEqual(text, "SPX +0.8% · VIX 15.2 · GOLD -0.5% · F&G 62 Greed · Watch best NVDA +4.2% · Watch worst AAPL -1.1%")
+        title, text = s.digest_text({"indices": [], "commods": []}, [{"sym": "X", "chg1d": 1}], "zh")
+        self.assertEqual(text, "自选最强 X +1.0%")  # 只有一个品种时不重复显示最弱
+        self.assertEqual(s.digest_text({}, [], "xx")[0], "Quant Stock God · Daily digest")  # 未知语言用英文
+
+    def test_tick_runs_once_a_day_after_the_set_time(self):
+        import tempfile
+        old = s.DATA
+        s.DATA = tempfile.mkdtemp()
+        try:
+            s.save_json("config.json", {"digest_enabled": True, "digest_time": "08:30"})
+            calls = []
+            with mock.patch.object(s, "run_digest", side_effect=lambda: calls.append(1)):
+                early = datetime(2026, 3, 2, 8, 29)
+                with mock.patch.object(s, "datetime", mock.Mock(now=lambda: early, fromtimestamp=datetime.fromtimestamp)):
+                    s.digest_tick()
+                self.assertEqual(calls, [])
+                late = datetime(2026, 3, 2, 8, 30)
+                with mock.patch.object(s, "datetime", mock.Mock(now=lambda: late, fromtimestamp=datetime.fromtimestamp)):
+                    s.digest_tick()
+                self.assertEqual(calls, [1])
+                s.save_json("digest.json", {"day": "2026-03-02"})  # 真正的 run_digest 会写这个
+                with mock.patch.object(s, "datetime", mock.Mock(now=lambda: late, fromtimestamp=datetime.fromtimestamp)):
+                    s.digest_tick()
+                self.assertEqual(calls, [1])  # 当天已发过
+                s.save_json("config.json", {"digest_enabled": False})
+                with mock.patch.object(s, "datetime", mock.Mock(now=lambda: late, fromtimestamp=datetime.fromtimestamp)):
+                    s.digest_tick()
+                self.assertEqual(calls, [1])
+        finally:
+            s.DATA = old
+
+    def test_relative_strength(self):
+        import tempfile
+        old = s.DATA
+        s.DATA = tempfile.mkdtemp()
+        try:
+            s.save_json("watchlist.json", [{"sym": "A"}, {"sym": "B"}])
+            quotes = {"A": {"chg1m": 5.0}, "B": {"chg1m": None}, "^GSPC": {"chg1m": 2.0}}
+            with mock.patch.object(s, "check_item", side_effect=lambda i, swr=True: {"sym": i["sym"], "flags": [], **quotes[i["sym"]]}), \
+                 mock.patch.object(s, "quote_summary", side_effect=lambda sym, *a, **k: quotes[sym]):
+                rows = s.refresh_watchlist()
+            self.assertEqual([r["rs1m"] for r in rows], [3.0, None])
+        finally:
+            s.DATA = old
+
+
 class Correlation(unittest.TestCase):
     def chart(self, closes, start=0):
         return {"ts": [1_700_000_000 + (start + i) * 86400 for i in range(len(closes))], "close": closes}

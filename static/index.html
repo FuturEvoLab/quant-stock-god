@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="market.css?v=3">
 <link rel="stylesheet" href="smart.css?v=2">
 <link rel="stylesheet" href="gold.css?v=1">
-<link rel="stylesheet" href="quant.css?v=4">
+<link rel="stylesheet" href="quant.css?v=5">
 <script src="boot.js?v=1"></script>
 </head>
 <body>
@@ -34,7 +34,7 @@
       </svg>
       <div class="brand-txt">
         <div class="brand-name" data-text="量化股神">量化股神</div>
-        <div class="brand-sub">QUANT STOCK GOD <i>v1.1</i></div>
+        <div class="brand-sub">QUANT STOCK GOD <i>v1.2</i></div>
       </div>
       <button id="nav-collapse" class="nav-collapse" type="button" title="收起 / 展开侧栏">
         <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
@@ -205,6 +205,13 @@
           <button id="al-test" type="button" class="ghost small">发送测试通知</button>
           <button id="al-run" type="button" class="ghost small">立即检查一次</button>
         </div>
+        <div class="form-row dg-row">
+          <label class="switch" title="每天到设定时间推送一条系统通知：主要指数 / 商品涨跌、恐惧贪婪指数、自选里最强和最弱的品种"><input id="dg-on" type="checkbox"><i></i>每日摘要通知</label>
+          <label class="field"><span>发送时间</span><input id="dg-time" type="time" value="08:30" step="60" class="w-sm mono-input"></label>
+          <span id="dg-info" class="muted"></span>
+          <span class="spacer"></span>
+          <button id="dg-run" type="button" class="ghost small">现在发送摘要</button>
+        </div>
         <div id="al-hist" class="al-hist"></div>
       </div>
 
@@ -224,7 +231,10 @@
       </form>
 
       <div class="card">
-        <div class="card-head"><h3>自选列表</h3><span id="watch-count" class="chip"></span><span class="spacer"></span><span class="muted">股票盘中成交量按时段折算成全天预估（*）；期货为当日累计，盘中偏低</span></div>
+        <div class="card-head"><h3>自选列表</h3><span id="watch-count" class="chip"></span><span class="spacer"></span><span class="muted">股票盘中成交量按时段折算成全天预估（*）；期货为当日累计，盘中偏低</span>
+          <button id="w-export" type="button" class="ghost small" title="把自选列表和 13F 基金列表存成 JSON 文件（不含 API Key）">导出</button>
+          <button id="w-import" type="button" class="ghost small" title="从导出的 JSON 文件导入：默认只添加本机没有的品种">导入</button>
+          <input id="w-file" type="file" accept="application/json,.json" hidden></div>
         <div class="table-wrap"><table id="watch-table"></table></div>
       </div>
     </section>
@@ -390,7 +400,7 @@
         <div>
           <div class="eyebrow">MODULE 06 // SYSTEM CONFIG</div>
           <h1>设置</h1>
-          <p>API Key 和邮箱只保存在本机的 data/config.json 里，页面不会回显已保存的内容。</p>
+          <p>API Key 和邮箱只保存在本机的 data/secrets.json 里（偏好设置在 config.json），页面不会回显已保存的内容。</p>
         </div>
       </header>
       <div class="settings-grid">
@@ -471,8 +481,8 @@
   <div class="lines" id="boot-lines"></div>
   <div class="skip">CLICK TO SKIP</div>
 </div>
-<script src="i18n.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="i18n.js?v=6"></script>
+<script src="app.js?v=6"></script>
 <script src="market.js?v=3"></script>
 <script src="corr.js?v=1"></script>
 <script src="smart.js?v=3"></script>

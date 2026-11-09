@@ -72,6 +72,55 @@ class Security(unittest.TestCase):
         self.assertNotIn(b"example.com", data)
         self.assertEqual(json.loads(data)["fred_key"], True)
 
+    def test_secrets_live_in_their_own_file(self):
+        """密钥写进 secrets.json，偏好留在 config.json；旧版本留在 config.json 里的密钥启动时搬走"""
+        s.save_json("secrets.json", {})  # 其他测试可能已经写过密钥
+        st, _, _ = self.write({"eia_key": "EIA-SECRET-1"})
+        self.assertEqual(st, 200)
+        sec = json.load(open(os.path.join(s.DATA, "secrets.json"), encoding="utf-8"))
+        self.assertEqual(sec["eia_key"], "EIA-SECRET-1")
+        cfg = json.load(open(os.path.join(s.DATA, "config.json"), encoding="utf-8")) if os.path.exists(os.path.join(s.DATA, "config.json")) else {}
+        self.assertFalse(any(k in cfg for k in s.KEY_FIELDS))
+        self.assertEqual(s.config()["eia_key"], "EIA-SECRET-1")
+        # 旧格式迁移
+        s.save_json("config.json", {**cfg, "fred_key": "OLD-FRED", "alert_interval": 5})
+        self.assertTrue(s.migrate_secrets())
+        self.assertFalse(s.migrate_secrets())
+        cfg2 = json.load(open(os.path.join(s.DATA, "config.json"), encoding="utf-8"))
+        sec2 = json.load(open(os.path.join(s.DATA, "secrets.json"), encoding="utf-8"))
+        self.assertNotIn("fred_key", cfg2)
+        self.assertEqual(cfg2["alert_interval"], 5)
+        self.assertEqual((sec2["fred_key"], sec2["eia_key"]), ("OLD-FRED", "EIA-SECRET-1"))
+        if os.name != "nt":
+            self.assertEqual(os.stat(os.path.join(s.DATA, "secrets.json")).st_mode & 0o777, 0o600)
+
+    def test_export_has_no_secrets_and_import_validates(self):
+        s.save_json("secrets.json", {"fred_key": "TOPSECRET"})
+        st, _, data = self.req("GET", "/api/watchlist/export")
+        self.assertEqual(st, 200)
+        self.assertNotIn(b"TOPSECRET", data)
+        body = json.loads(data)
+        self.assertIn("watchlist", body)
+        h = {"Content-Type": "application/json", "X-QS-Client": "1"}
+        st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": [{"sym": "../etc"}]}), h)
+        self.assertEqual(st, 400)
+        st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": "nope"}), h)
+        self.assertEqual(st, 400)
+        st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": [{"sym": "msft", "move_pct": 999, "label": "x" * 100, "added": 1700000000}], "managers": [{"cik": "0001067983", "name": "Berkshire"}, {"cik": "abc"}]}), h)
+        self.assertEqual(st, 200, data)
+        r = json.loads(data)
+        self.assertEqual(r["added"], 1)
+        items = s.load_json("watchlist.json", [])
+        m = next(i for i in items if i["sym"] == "MSFT")
+        self.assertEqual((m["move_pct"], len(m["label"]), m["added"]), (100.0, 40, 1700000000))
+        self.assertIn(1067983, [x["cik"] for x in s.load_json("managers.json", [])])
+        # 再导一次同样的内容：合并模式不重复添加
+        st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": [{"sym": "MSFT"}]}), h)
+        self.assertEqual(json.loads(data)["added"], 0)
+        # 替换模式
+        st, _, data = self.req("POST", "/api/watchlist/import", json.dumps({"watchlist": [{"sym": "TSLA"}], "replace": True}), h)
+        self.assertEqual([i["sym"] for i in s.load_json("watchlist.json", [])], ["TSLA"])
+
     def test_security_headers(self):
         st, h, _ = self.req("GET", "/")
         self.assertEqual(st, 200)

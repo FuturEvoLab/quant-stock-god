@@ -33,6 +33,12 @@
 .q-flag.above { background: color-mix(in srgb, var(--in) 16%, transparent); color: var(--in); }
 .q-flag.below { background: color-mix(in srgb, var(--out) 16%, transparent); color: var(--out); }
 tr.q-hit td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+#watch-table th.sortable { cursor: pointer; user-select: none; }
+#watch-table th.sortable:hover { color: var(--text); }
+#watch-table th.sortable.asc::after { content: " ▲"; font-size: 9px; color: var(--accent); }
+#watch-table th.sortable.desc::after { content: " ▼"; font-size: 9px; color: var(--accent); }
+.dg-row { border-top: 1px dashed var(--border); padding-top: 10px; margin-top: 8px; }
+.dg-row #dg-time { width: 104px; }
 tr.q-hit td:first-child { box-shadow: inset 2px 0 0 var(--accent); animation: breathe 5s ease-in-out infinite; }
 #watch-table .row-acts { white-space: nowrap; text-align: right; }
 #watch-table .row-acts button + button { margin-left: 6px; }

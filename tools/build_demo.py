@@ -83,6 +83,7 @@ def record():
     data["/api/technews"] = s.tech_news()
     data["/api/news/accuracy"] = s.news_accuracy()
     data["/api/news/alerts"] = s.news_alert_status()
+    data["/api/digest"] = s.digest_status()
     data["/api/managers"] = s.managers()
     data["/api/status"] = s.source_status()
     data["/api/config"] = {k: False for k in s.KEY_FIELDS}
