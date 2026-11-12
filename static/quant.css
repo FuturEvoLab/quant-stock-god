@@ -298,3 +298,21 @@ svg text { stroke: none; }
 /* 英文界面：品牌名 “Quant Stock God” 比中文长，Orbitron 宽字体在侧栏里会被截断；英文时改用同为 HUD 风格的 Rajdhani */
 :root:lang(en) .brand .brand-name { font-family: "Rajdhani", var(--font); font-size: 14px; font-weight: 700; letter-spacing: .02em; }
 :root:lang(en) .brand .brand-sub { font-size: 9.5px; letter-spacing: .06em; }
+
+/* 港股通南向资金 */
+.sb-stats { margin-top: 4px; }
+.sb-stats .dt-stat small { font-size: 10.5px; }
+.sb-chart { margin-top: 10px; }
+.sb-chart rect { transition: opacity .3s ease; }
+.sb-chart rect:hover { opacity: 1; }
+.sb-tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 14px; margin-top: 8px; }
+@media (max-width: 600px) { .sb-tables { grid-template-columns: 1fr; } }
+.sb-tables table { font-size: 12.5px; }
+.sb-tables td, .sb-tables th { white-space: nowrap; }
+.sb-tables td:nth-child(2) { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.sb-chart svg { width: 100%; display: block; }
+.sb-chart .g { stroke: var(--border); stroke-dasharray: 2 3; }
+.sb-chart text { font: 500 10.5px var(--mono); fill: var(--muted); }
+#sb-card tr[data-sym] { cursor: pointer; }
+#sb-card td.up { color: var(--in); } #sb-card td.down { color: var(--out); }
+#sb-card .dt-stat b.up { color: var(--in); } #sb-card .dt-stat b.down { color: var(--out); }

@@ -1216,6 +1216,123 @@ def macro():
     return {"source": source, "items": out, "curve": curve, "spreads": spreads, "errors": errors}
 
 
+# ---------------------------------------------------------------- 港股通南向资金（HKEX 每日成交统计，免费公开）
+# 每个交易日一个文件：沪 / 深港通南向的买入、卖出成交额（百万港元）和成交额前 10 的股票。非交易日返回 404。
+# 过去的日子不会再变，解析结果永久缓存；当天和前一天的文件可能还没发布，只缓存 1 小时
+
+HK_TZ = timezone(timedelta(hours=8))
+SOUTH_DAYS = 45  # 往回看的自然日，约 30 个交易日
+hkex_limiter = RateLimiter(4)
+
+
+def hkex_num(x):
+    try:
+        return float(str(x).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def hkex_parse(text):
+    """解析 data_tab_daily_YYYYMMDDe.js（`tabData = [...]`），只取两条南向通道"""
+    if not text.strip():
+        return None  # 偶尔有交易日返回空文件（数据还没补上），当作暂时没有数据
+    i = text.find("[")
+    if i < 0:
+        raise ApiError("HKEX 返回格式异常")
+    out = {"date": None, "links": {}, "top": {}}
+    for m in json.loads(text[i:].strip().rstrip(";")):
+        link = {"SSE Southbound": "sh", "SZSE Southbound": "sz"}.get(m.get("market"))
+        if not link or m.get("tradingDay") != 1:  # 内地假期时港股通暂停，那条通道 tradingDay 为 0
+            continue
+        out["date"] = m.get("date")
+        for c in m.get("content", []):
+            t = c.get("table") or {}
+            head = (t.get("schema") or [[]])[0]
+            rows = [r["td"][0] for r in t.get("tr", []) if r.get("td")]
+            if t.get("classname") == "tradingTable":
+                vals = dict(zip(head, (r[0] for r in rows)))
+                out["links"][link] = {"buy": hkex_num(vals.get("Buy Turnover")), "sell": hkex_num(vals.get("Sell Turnover"))}
+            elif t.get("classname") == "top10Table":
+                col = {h: k for k, h in enumerate(head)}
+                for r in rows:
+                    code = r[col["Stock Code"]].strip()
+                    buy, sell = hkex_num(r[col["Buy Turnover"]]), hkex_num(r[col["Sell Turnover"]])
+                    if not code or buy is None or sell is None:
+                        continue
+                    x = out["top"].setdefault(code, {"code": code, "name": r[col["Stock Name"]].strip(), "buy": 0.0, "sell": 0.0})
+                    x["buy"] += buy
+                    x["sell"] += sell
+    if not out["links"]:
+        return None
+    out["buy"] = sum(v["buy"] or 0 for v in out["links"].values()) * 1e6  # 百万港元 → 港元
+    out["sell"] = sum(v["sell"] or 0 for v in out["links"].values()) * 1e6
+    out["net"] = out["buy"] - out["sell"]
+    out["top"] = sorted(out["top"].values(), key=lambda x: x["buy"] + x["sell"], reverse=True)
+    return out
+
+
+def hkex_day(d):
+    key = d.strftime("%Y%m%d")
+    name = cache_name("hkex", key)
+    old = load_json(name, None)
+    recent = (datetime.now(HK_TZ).date() - d).days < 2
+    ttl = 3600 if recent else 6 * 3600 if old and old.get("empty") else None  # None = 不再变化，永久使用
+    if old is not None and (ttl is None or time.time() - old["fetched"] < ttl):
+        return old["day"]
+    hkex_limiter.wait()
+    empty = False
+    try:
+        text = http_get(f"https://www.hkex.com.hk/eng/csm/DailyStat/data_tab_daily_{key}e.js", raw=True, ttl=600, timeout=20)
+        empty = not text.strip()
+        day = hkex_parse(text)
+    except ApiError as e:
+        if "HTTP 404" not in str(e):
+            raise
+        day = None  # 非交易日（或当天还没发布）
+    with _store_lock:
+        save_json(name, {"fetched": time.time(), "day": day, "empty": empty})
+    return day
+
+
+def southbound():
+    today = datetime.now(HK_TZ).date()
+    dates = [today - timedelta(days=k) for k in range(SOUTH_DAYS) if (today - timedelta(days=k)).weekday() < 5]
+    jobs = [(d, POOL.submit(hkex_day, d)) for d in dates]
+    days, errors = [], {}
+    for d, fut in jobs:
+        try:
+            x = fut.result(timeout=90)
+            if x:
+                days.append(x)
+        except Exception as e:  # noqa: BLE001 — 个别日子失败不影响其他
+            errors[d.isoformat()] = str(e)[:160]
+    if not days:
+        raise ApiError("HKEX 南向资金数据暂时不可用" + (f"：{next(iter(errors.values()))}" if errors else ""))
+    days.sort(key=lambda x: x["date"])
+    nets = [x["net"] for x in days]
+    streak = 0
+    for v in reversed(nets):
+        if streak == 0 or (v > 0) == (streak > 0):
+            streak += 1 if v > 0 else -1
+        else:
+            break
+    agg5 = {}
+    for x in days[-5:]:  # 近 5 日在成交额前 10 里出现过的股票：只覆盖每天最活跃的那 10 只，不是全部
+        for t in x["top"]:
+            a = agg5.setdefault(t["code"], {"code": t["code"], "name": t["name"], "net": 0.0, "days": 0})
+            a["net"] += t["buy"] - t["sell"]
+            a["days"] += 1
+    last = days[-1]
+    turnover20 = [x["buy"] + x["sell"] for x in days[-20:]]
+    return {"date": last["date"], "net": last["net"], "buy": last["buy"], "sell": last["sell"],
+            "links": {k: {"net": ((v["buy"] or 0) - (v["sell"] or 0)) * 1e6} for k, v in last["links"].items()},
+            "net5": sum(nets[-5:]), "net20": sum(nets[-20:]), "avg_abs20": sum(abs(v) for v in nets[-20:]) / len(nets[-20:]),
+            "turnover": last["buy"] + last["sell"], "turnover20": sum(turnover20) / len(turnover20), "streak": streak,
+            "series": [{"d": x["date"], "net": x["net"]} for x in days],
+            "top": [{**t, "net": t["buy"] - t["sell"]} for t in last["top"]],
+            "top5d": sorted(agg5.values(), key=lambda a: a["net"], reverse=True), "errors": errors}
+
+
 # ---------------------------------------------------------------- 新闻影响（免费 RSS + 关键词规则）
 # 从公开 RSS 抓最近 72 小时的标题，用透明的关键词规则识别“驱动因素”，给出该因素通常对各商品的影响方向。
 # 这只是新闻里常见因果关系的归纳，不是价格预测；标题保留英文原文。
@@ -2033,6 +2150,8 @@ class Handler(SimpleHTTPRequestHandler):
             return cot()
         if path == "/api/eia":
             return eia()
+        if path == "/api/southbound":
+            return southbound()
         if path == "/api/macro":
             return macro()
         if path == "/api/news":
@@ -2115,7 +2234,7 @@ def prewarm():
         prune_cache()
     except Exception:  # noqa: BLE001
         pass
-    for fn in (market, refresh_watchlist, cot, eia, macro, news):
+    for fn in (market, refresh_watchlist, cot, eia, macro, southbound, news):
         try:
             fn()
         except Exception:  # noqa: BLE001

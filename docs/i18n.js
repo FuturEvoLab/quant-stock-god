@@ -110,6 +110,33 @@ const ENTRIES = [
   ["近期波动明显低于一年平均", "直近のボラティリティは 1 年平均を大きく下回る", "Recent volatility is well below its 1-year average"],
   ["成交量明显高于 20 日均量", "出来高は 20 日平均を大きく上回る", "Volume is well above its 20-day average"],
 
+  // ---- 港股通南向资金
+  ["港股通南向资金", "香港ストックコネクト南向き資金", "HK Stock Connect southbound flows"],
+  ["HKEX · 每个交易日收盘后更新", "HKEX · 毎取引日の引け後に更新", "HKEX · updated after each trading day's close"],
+  ["正在读取港股通南向资金…", "南向き資金を読み込み中…", "Loading southbound flows…"],
+  ["当日净买入", "当日の買い越し額", "Net buy today"],
+  ["近 5 日净买入", "直近 5 日の買い越し額", "5-day net buy"],
+  ["近 20 日净买入", "直近 20 日の買い越し額", "20-day net buy"],
+  ["连续净买入", "連続買い越し", "Net-buy streak"],
+  ["连续净卖出", "連続売り越し", "Net-sell streak"],
+  ["当日成交额", "当日の売買代金", "Turnover today"],
+  ["当日成交额前 10", "当日の売買代金上位 10 銘柄", "Top 10 by turnover today"],
+  ["近 5 日净买入 / 净卖出", "直近 5 日の買い越し / 売り越し", "5-day net buy / net sell"],
+  ["买入", "買い", "Buy"],
+  ["卖出", "売り", "Sell"],
+  ["净买入", "買い越し", "Net buy"],
+  ["上榜天数", "ランクイン日数", "Days in top 10"],
+  ["个股只统计每天成交额前 10 的股票（HKEX 只公布这 10 只的买卖额），不是全部南向持股变化。金额为港元。",
+    "個別銘柄は毎日の売買代金上位 10 銘柄のみ（HKEX が売買額を公表するのはこの 10 銘柄だけ）で、南向き保有の全体の変化ではありません。金額は香港ドル。",
+    "Per-stock figures only cover each day's top 10 stocks by turnover (HKEX publishes buy/sell amounts only for those 10), not all southbound holdings. Amounts in HKD."],
+  ["南向资金连续多日净买入港股", "南向き資金が複数日連続で香港株を買い越し", "Southbound money has been a net buyer of HK stocks for several days in a row"],
+  ["南向资金连续多日净卖出港股", "南向き資金が複数日連続で香港株を売り越し", "Southbound money has been a net seller of HK stocks for several days in a row"],
+  ["南向资金 · 当日", "南向き資金 · 当日", "Southbound · today"],
+  ["当日南向净买入明显高于近 20 日平均力度", "当日の南向き買い越しは直近 20 日の平均的な規模を大きく上回る", "Today's southbound net buying is well above its 20-day average size"],
+  ["当日南向净卖出明显高于近 20 日平均力度", "当日の南向き売り越しは直近 20 日の平均的な規模を大きく上回る", "Today's southbound net selling is well above its 20-day average size"],
+  ["HKEX 南向资金数据暂时不可用", "HKEX の南向き資金データが一時的に利用できません", "HKEX southbound data is temporarily unavailable"],
+  ["HKEX 返回格式异常", "HKEX の応答形式が想定外です", "Unexpected HKEX response format"],
+
   // ---- 市场总览
   ["美股、港股、日股指数，美债收益率、美元、波动率，以及黄金、白银、原油、铜、天然气期货，一页看清市场温度。行情约延迟 15 分钟，每 5 分钟刷新。",
     "米国・香港・日本の株価指数、米国債利回り、ドル、ボラティリティ、そして金・銀・原油・銅・天然ガス先物を 1 ページで把握。相場は約 15 分遅延、5 分ごとに更新します。",
@@ -592,6 +619,10 @@ const ENTRIES = [
 
 // 带变量的文案：[正则, 日本語模板, English 模板]；$1.. 会再经过 tr/gl 翻译
 const PATTERNS = [
+  [/^交易日 (\d{4}-\d{2}-\d{2})$/, "取引日 $1", "Trading day $1"],
+  [/^(\d+) 日$/, "$1 日", "$1 days"],
+  [/^20 日均值 (.+)$/, "20 日平均 $1", "20-day avg $1"],
+  [/^HKEX 南向资金数据暂时不可用：(.+)$/, "HKEX の南向き資金データが一時的に利用できません：$1", "HKEX southbound data is temporarily unavailable: $1"],
   [/^(Yahoo|CNN F&G|SEC EDGAR|CFTC COT) · (.+)$/, "$1 · $2", "$1 · $2"],
   [/^双击项目文件夹里的“Enable-Autostart-(.+)”$/, "プロジェクトフォルダの「Enable-Autostart-$1」をダブルクリック", "Double-click “Enable-Autostart-$1” in the project folder"],
   [/^从 (\S+) 开始记录 · (\d+) 天$/, "$1 から記録 · $2 日", "Recording since $1 · $2 days"],

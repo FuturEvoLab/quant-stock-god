@@ -75,6 +75,7 @@ def record():
     data["/api/cot"] = s.cot()
     data["/api/eia"] = s.eia()
     data["/api/macro"] = s.macro()
+    data["/api/southbound"] = s.southbound()
     print("新闻…")
     data["/api/news"] = s.news()
     data["/api/technews"] = s.tech_news()

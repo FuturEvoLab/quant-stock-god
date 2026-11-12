@@ -29,7 +29,7 @@ Watch US and Hong Kong stocks, indices, rates, the dollar, gold, oil and other c
 
 | Module | What it does |
 |---|---|
-| Market overview | Fear & Greed (CNN, or a local composite when CNN is unavailable), VIX, S&P 500, Nasdaq, Hang Seng, Nikkei 225, US 10Y, the dollar index, plus gold, silver, WTI, Brent, copper and natgas futures. Each shows 1D / 1W / 1M changes and a sparkline. An objective readout is generated automatically, alongside the Treasury yield curve and the 10Y−3M / 10Y−2Y spreads. |
+| Market overview | Fear & Greed (CNN, or a local composite when CNN is unavailable), VIX, S&P 500, Nasdaq, Hang Seng, Nikkei 225, US 10Y, the dollar index, plus gold, silver, WTI, Brent, copper and natgas futures. Each shows 1D / 1W / 1M changes and a sparkline. An objective readout is generated automatically, alongside the Treasury yield curve and the 10Y−3M / 10Y−2Y spreads. A **Stock Connect southbound** card shows daily net buying of HK stocks by mainland investors (30 trading days, Shanghai / Shenzhen split, 5- and 20-day totals, streaks) and the day's top 10 stocks, from HKEX's free daily statistics. |
 | Watchlist | US stocks, HK stocks (`0700.HK`), futures (`GC=F`) and indices (`^HSI`). Price moves, volume versus the 20-day average, RSI crossing 70/30 and 52-week highs/lows are checked in the background, with macOS / Windows notifications. |
 | Symbol detail | Close chart with 20/50/200-day averages, volume, RSI(14), volatility, max drawdown and objective technical notes (no buy/sell calls). |
 | Smart money (SEC EDGAR) | **Form 4:** open-market insider purchases (code P), with 30/90-day returns, excess return vs the S&P 500 and per-insider hit rates. **13F:** quarter-over-quarter new / added / reduced / exited positions of well-known funds, drawn as a fund ↔ stock graph. |
@@ -65,7 +65,7 @@ Enter these on the Settings page. They are stored only in `data/config.json` on 
 - The Yahoo Finance and CNN endpoints are unofficial and may change or throttle without notice. CNN rejects non-browser clients, so the local composite index is usually shown.
 - Quotes are about 15 minutes delayed. 13F data arrives up to 45 days after quarter-end, and CUSIPs are not yet mapped to tickers.
 - News tagging is rule-based, not a forecast. Headlines are shown in their original English.
-- Hong Kong southbound flows and HK insider disclosures are planned for a later version.
+- Southbound per-stock figures only cover each day's 10 most-traded stocks, because HKEX publishes buy/sell amounts only for those. HK insider disclosures are planned for a later version.
 
 The full specification and limitations are in the Chinese [README.zh.md](README.zh.md).
 
@@ -79,7 +79,7 @@ The demo in `docs/` is a static copy of the UI that answers its API calls from a
 python3 -m unittest discover tests
 ```
 
-There are 35 offline tests (no network, no notifications). GitHub Actions runs them on every push (Ubuntu with Python 3.9 and 3.12, and macOS).
+There are 38 offline tests (no network, no notifications). GitHub Actions runs them on every push (Ubuntu with Python 3.9 and 3.12, and macOS).
 
 ## License and contact
 
