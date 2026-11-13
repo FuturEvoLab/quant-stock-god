@@ -1,4 +1,4 @@
-# 量化株神（Quant Stock God）— ローカルで動く米国株・香港株・商品マーケット監視ツール
+# クオンツ株神（Quant Stock God）— ローカルで動く米国株・香港株・商品マーケット監視ツール
 
 [English](README.md) · 日本語 · [中文](README.zh.md) · ライセンス：[AGPL-3.0](LICENSE) · [セキュリティ](SECURITY.md) · [サードパーティ](THIRD_PARTY_NOTICES.md) · 作者：[@FuturEvoLab](https://x.com/FuturEvoLab)
 
