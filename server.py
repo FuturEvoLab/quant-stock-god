@@ -8,6 +8,7 @@
 
 import bisect
 import email.utils
+import functools
 import html
 import math
 import json
@@ -21,10 +22,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
+VERSION = "1.5.1"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8767"))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
@@ -64,7 +67,7 @@ def save_json(name, value):
     tmp = f"{path}.{threading.get_ident()}.tmp"  # 每个线程用自己的临时文件，并发写同一个文件时不会互相踩
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(value, f, ensure_ascii=False)
-    if name == "config.json":  # 里面有 API Key 和邮箱：只允许本人读写（exFAT 等不支持权限的磁盘上会被忽略）
+    if name in ("config.json", "secrets.json"):  # 密钥和邮箱只允许本人读写（exFAT 等不支持权限的磁盘上会被忽略）
         try:
             os.chmod(tmp, 0o600)
         except OSError:
@@ -77,6 +80,8 @@ def cache_name(kind, key):
 
 
 KEY_FIELDS = ("fred_key", "eia_key", "finnhub_key", "sec_email")
+KEY_ENV = (("fred_key", "FRED_API_KEY"), ("eia_key", "EIA_API_KEY"), ("finnhub_key", "FINNHUB_API_KEY"), ("sec_email", "SEC_EMAIL"))
+SYM_RE = r"^[A-Z0-9^=.\-]{1,20}$"
 
 
 def num(v, lo, hi, default=0.0):
@@ -101,11 +106,29 @@ def finite(o):
 
 
 def config():
+    """偏好设置（config.json）+ 密钥（secrets.json）。密钥单独放一个文件，这样同步 data/ 目录时只需排除 secrets.json；
+    1.1 及更早版本把密钥写在 config.json 里，启动时 migrate_secrets() 会搬走，这里也兼容还没搬的情况"""
     cfg = load_json("config.json", {})
-    # 环境变量优先，方便临时使用
-    for k, env in (("fred_key", "FRED_API_KEY"), ("eia_key", "EIA_API_KEY"), ("finnhub_key", "FINNHUB_API_KEY"), ("sec_email", "SEC_EMAIL")):
-        cfg[k] = os.environ.get(env) or cfg.get(k, "")
+    sec = load_json("secrets.json", {})
+    for k, env in KEY_ENV:  # 环境变量优先，方便临时使用
+        cfg[k] = os.environ.get(env) or sec.get(k) or cfg.get(k, "")
     return cfg
+
+
+def migrate_secrets():
+    """把 config.json 里的密钥搬到 secrets.json（只在启动时做一次）"""
+    with _store_lock:
+        cfg = load_json("config.json", {})
+        if not any(cfg.get(k) for k in KEY_FIELDS):
+            return False
+        sec = load_json("secrets.json", {})
+        for k in KEY_FIELDS:
+            if cfg.get(k) and not sec.get(k):
+                sec[k] = cfg[k]
+            cfg.pop(k, None)
+        save_json("secrets.json", sec)
+        save_json("config.json", cfg)
+        return True
 
 
 # ---------------------------------------------------------------- HTTP 工具
@@ -117,36 +140,80 @@ _cache_lock = threading.Lock()
 MAX_REMOTE_BYTES = 25_000_000
 
 
+def has_doctype(text):
+    """根元素之前是否有 DOCTYPE 声明。XML 规定 DOCTYPE 只能出现在根元素之前，所以跳过空白、注释和处理指令，
+    看到的第一个标签是 <! 就是 DOCTYPE。不能只检查开头固定长度：前面塞一段超长注释就能把 DOCTYPE 推到检查范围之外"""
+    i, n = 0, len(text)
+    while i < n:
+        while i < n and text[i] in " \t\r\n\ufeff":
+            i += 1
+        if text.startswith("<!--", i):
+            j = text.find("-->", i + 4)
+            i = n if j < 0 else j + 3
+        elif text.startswith("<?", i):
+            j = text.find("?>", i + 2)
+            i = n if j < 0 else j + 2
+        else:
+            return text.startswith("<!", i)
+    return False
+
+
 def parse_xml(text):
-    """解析远程 XML（RSS / SEC）。正常的数据不会声明 DTD 实体；有就拒绝，彻底避免“XML 炸弹”之类的实体展开攻击"""
-    if re.search(r"<!(ENTITY|DOCTYPE[^>]*\[)", text[:20000], re.I):
-        raise ApiError("XML 含实体声明，已拒绝解析")
+    """解析远程 XML（RSS / SEC）。正常的数据不会声明 DTD / 实体；有就拒绝，彻底避免“XML 炸弹”之类的实体展开攻击"""
+    if has_doctype(text):
+        raise ApiError("XML 含 DOCTYPE / 实体声明，已拒绝解析")
     return ET.fromstring(re.sub(r"^\s*<\?xml[^>]*\?>", "", text))  # 去掉编码声明后按已解码的文本解析
 
 
-def http_get(url, headers=None, ttl=120, raw=False, timeout=30):
+def read_body(resp, limit=MAX_REMOTE_BYTES):
+    """读取响应体并按需解压 gzip。压缩前、解压后都限制大小，防止“压缩炸弹”占满内存"""
+    too_big = ApiError(f"远程数据过大（超过 {limit // 1_000_000} MB）")
+    body = resp.read(limit + 1)
+    if len(body) > limit:  # 数据源被劫持或出错时可能返回超大内容，直接拒绝
+        raise too_big
+    enc = (resp.headers.get("Content-Encoding") or "").strip().lower()
+    if enc in ("gzip", "x-gzip"):
+        d = zlib.decompressobj(zlib.MAX_WBITS | 16)
+        try:
+            body = d.decompress(body, limit + 1)
+        except zlib.error as e:
+            raise ApiError(f"gzip 解压失败: {e}")
+        if len(body) > limit or d.unconsumed_tail:
+            raise too_big
+    elif enc not in ("", "identity"):
+        raise ApiError(f"不支持的内容编码: {enc[:20]}")
+    return body
+
+
+def http_get(url, headers=None, ttl=120, raw=False, timeout=30, cache=True):
+    """cache=False：调用方自己缓存解析后的结果（如 Yahoo 行情），这里不再在内存里多存一份原始响应"""
     now = time.time()
     ckey = re.sub(r"(api_key=)[^&]+", r"\1***", url)  # 内存缓存的键里不保留 API Key
-    with _cache_lock:
-        hit = _cache.get(ckey)
-        if hit and now - hit[0] < ttl:
-            return hit[1]
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*", **(headers or {})})
+    if cache:
+        with _cache_lock:
+            hit = _cache.get(ckey)
+            if hit and now - hit[0] < ttl:
+                return hit[1]
+    # 请求 gzip：Yahoo 多年日线、EIA、SEC、RSS 这类 JSON / XML 文本通常能压缩到原来的 1/5 ~ 1/10
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*", "Accept-Encoding": "gzip", **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read(MAX_REMOTE_BYTES + 1)
-        if len(body) > MAX_REMOTE_BYTES:  # 数据源被劫持或出错时可能返回超大内容，直接拒绝，避免占满内存
-            raise ApiError(f"远程数据过大（超过 {MAX_REMOTE_BYTES // 1_000_000} MB）")
+            body = read_body(resp)
     except urllib.error.HTTPError as e:
-        raise ApiError(f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:160]}")
+        try:
+            msg = read_body(e, 64_000).decode("utf-8", "replace")
+        except (ApiError, OSError):
+            msg = ""
+        raise ApiError(f"HTTP {e.code}: {msg[:160]}")
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise ApiError(f"网络错误: {getattr(e, 'reason', e)}")
     data = body.decode("utf-8", "replace") if raw else json.loads(body.decode("utf-8"))
-    with _cache_lock:
-        _cache[ckey] = (now, data)
-        if len(_cache) > 600:
-            for k, _ in sorted(_cache.items(), key=lambda kv: kv[1][0])[:200]:
-                del _cache[k]
+    if cache:
+        with _cache_lock:
+            _cache[ckey] = (now, data)
+            if len(_cache) > 600:
+                for k, _ in sorted(_cache.items(), key=lambda kv: kv[1][0])[:200]:
+                    del _cache[k]
     return data
 
 
@@ -246,7 +313,7 @@ def _yahoo_fetch(sym, url, disk_key, old, ttl):
     for host in ("query1", "query2"):
         yahoo_limiter.wait()
         try:
-            data = http_get(url.replace("query1", host), ttl=ttl, timeout=12)
+            data = http_get(url.replace("query1", host), ttl=ttl, timeout=12, cache=False)  # 解析结果另有缓存，原始响应不必常驻内存
             break
         except ApiError as e:
             err = e
@@ -266,7 +333,7 @@ def _yahoo_fetch(sym, url, disk_key, old, ttl):
     meta = r.get("meta", {})
     q = (r.get("indicators", {}).get("quote") or [{}])[0]
     ts, closes, vols = r.get("timestamp") or [], q.get("close") or [], q.get("volume") or []
-    rows = [(t, c, (vols[i] if i < len(vols) else None) or 0) for i, (t, c) in enumerate(zip(ts, closes)) if c is not None]
+    rows = [(t, c, (vols[i] if i < len(vols) else None) or 0) for i, (t, c) in enumerate(zip(ts, closes)) if c is not None and c > 0]  # Yahoo 偶尔给 0 收盘价，和缺失一样丢掉
     if not rows:
         raise ApiError(f"没有行情数据: {sym}")
     price = meta.get("regularMarketPrice") or rows[-1][1]
@@ -324,8 +391,9 @@ def quote_summary(sym, rng="2y", swr=True):
     y1 = c[-252:]
     hi52, lo52 = max(y1), min(y1)
     prev52 = c[-253:-1] if len(c) >= 253 else None  # 今天之前完整的 252 个交易日；历史不足不判断
-    return {"sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "exchange": d["exchange"],
-            "price": c[-1], "chg1d": chg(c, 1),
+    ma = lambda arr, n: sum(arr[-n:]) / n if len(arr) >= n else None  # 均线（金叉 / 死叉提醒用今天和昨天的 20 / 50 日均线）
+    return {"ma20": ma(c, 20), "ma50": ma(c, 50), "ma20_prev": ma(c[:-1], 20), "ma50_prev": ma(c[:-1], 50),"sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "exchange": d["exchange"],
+            "price": c[-1], "prev_close": c[-2] if len(c) > 1 else None, "chg1d": chg(c, 1),
             "abs1d": c[-1] - c[-2] if len(c) > 1 else None, "abs1w": c[-1] - c[-6] if len(c) > 5 else None, "abs1m": c[-1] - c[-22] if len(c) > 21 else None, "chg1w": chg(c, 5), "chg1m": chg(c, 21), "chg3m": chg(c, 63),
             "spark": c[-44:], "volume": vol_today, "avg20": avg20, "vol_ratio": (vol_est / avg20) if avg20 and vol_est else None,
             "vol_projected": vol_est != vol_today, "rsi14": rsi(c[-120:]), "rsi_prev": rsi(c[-121:-1]), "hi52": hi52, "lo52": lo52,
@@ -352,7 +420,12 @@ def detail(sym):
         raise ApiError(f"没有行情数据: {sym}")
     ma = {n: sma(c, n) for n in (20, 50, 200)}
     rets = [c[i] / c[i - 1] - 1 for i in range(1, len(c)) if c[i - 1]]
-    vol = lambda r: (sum((x - sum(r) / len(r)) ** 2 for x in r) / (len(r) - 1)) ** 0.5 * 252 ** 0.5 * 100 if len(r) > 2 else None
+
+    def vol(r):  # 年化波动率（%）
+        if len(r) <= 2:
+            return None
+        mean = sum(r) / len(r)
+        return (sum((x - mean) ** 2 for x in r) / (len(r) - 1)) ** 0.5 * 252 ** 0.5 * 100
     y1 = c[-252:]
     peak, mdd = y1[0], 0.0
     for x in y1:
@@ -403,10 +476,21 @@ def pct_rank(vals, x):
     return bisect.bisect_left(s, x) / len(s) * 100 + (bisect.bisect_right(s, x) - bisect.bisect_left(s, x)) / len(s) * 50
 
 
+_fng_memo = {"key": None, "val": None}
+
+
 def local_fng():
     """合成情绪指数 0~100：动量（标普 vs 125 日均线）、波动（VIX vs 50 日均线，反向）、
-    避险需求（标普 vs 长债 20 日收益差）、垃圾债需求（HYG vs IEF 20 日收益差）。各项按近一年百分位换算后取平均。"""
-    spx, vix, tlt, hyg, ief = (yahoo_chart(s, "2y") for s in ("^GSPC", "^VIX", "TLT", "HYG", "IEF"))
+    避险需求（标普 vs 长债 20 日收益差）、垃圾债需求（HYG vs IEF 20 日收益差）。各项按近一年百分位换算后取平均。
+    输入的 5 份日线没变（按抓取时间判断）就直接用上次的结果"""
+    charts = [yahoo_chart(s, "2y") for s in ("^GSPC", "^VIX", "TLT", "HYG", "IEF")]
+    key = tuple(d.get("fetched") for d in charts)
+    if not _fng_memo["val"] or _fng_memo["key"] != key:
+        _fng_memo["key"], _fng_memo["val"] = key, _local_fng(*charts)
+    return dict(_fng_memo["val"])  # 返回副本：调用方会往里加 cnn_error 之类的字段
+
+
+def _local_fng(spx, vix, tlt, hyg, ief):
 
     def by_day(d):
         return {datetime.fromtimestamp(t, timezone.utc).date().isoformat(): c for t, c in zip(d["ts"], d["close"])}
@@ -465,12 +549,628 @@ def market():
     return out
 
 
+# ---------------------------------------------------------------- 量化实验室：规则回测 + 基于历史波动率的统计区间
+# 回测：长线、只做多、按收盘价执行（信号用当天收盘算，持仓作用于下一天的收益），每次换仓扣固定手续费。
+# 这是对历史数据的描述，不是对未来的预测；同时给出前半段 / 后半段的结果，方便看规则是否只在某一段有效。
+
+STRATEGIES = ("buyhold", "ma_cross", "trend200", "rsi_mr")
+BT_RANGES = ("2y", "5y", "10y")
+
+
+def positions_for(strategy, closes):
+    """每天收盘后的目标仓位（0 / 1）；None 表示指标还没算出来（预热期）"""
+    n = len(closes)
+    if strategy == "buyhold":
+        return [1] * n
+    if strategy == "ma_cross":
+        m20, m50 = sma(closes, 20), sma(closes, 50)
+        return [None if m50[i] is None else int(m20[i] > m50[i]) for i in range(n)]
+    if strategy == "trend200":
+        m200 = sma(closes, 200)
+        return [None if m200[i] is None else int(closes[i] > m200[i]) for i in range(n)]
+    if strategy == "rsi_mr":  # RSI < 30 买入，RSI > 70 卖出（均值回归）
+        out, held = [], 0
+        for i in range(n):
+            r = rsi(closes[max(0, i - 119):i + 1])
+            if r is None:
+                out.append(None)
+                continue
+            if not held and r < 30:
+                held = 1
+            elif held and r > 70:
+                held = 0
+            out.append(held)
+        return out
+    raise ApiError(f"未知策略: {strategy}")
+
+
+def max_drawdown(eq):
+    peak, mdd = eq[0], 0.0
+    for x in eq:
+        peak = max(peak, x)
+        mdd = min(mdd, x / peak - 1)
+    return mdd * 100
+
+
+def perf_stats(eq, ts):
+    """eq：净值序列（起点 1），ts：对应时间戳"""
+    if len(eq) < 3:
+        return None
+    rets = [eq[i] / eq[i - 1] - 1 for i in range(1, len(eq))]
+    years = max((ts[-1] - ts[0]) / (365.25 * 86400), 1 / 252)
+    mean = sum(rets) / len(rets)
+    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+    sd = var ** 0.5
+    return {"total": (eq[-1] - 1) * 100, "cagr": (eq[-1] ** (1 / years) - 1) * 100 if eq[-1] > 0 else -100.0,
+            "vol": sd * 252 ** 0.5 * 100, "sharpe": mean / sd * 252 ** 0.5 if sd > 0 else None, "mdd": max_drawdown(eq), "years": years}
+
+
+def run_backtest(closes, ts, strategy, fee_bp=5, first=0):
+    """first：回测区间的第一根 K 线。指标用全部历史计算，这样 200 日均线等的预热期不会占用所选区间"""
+    pos = positions_for(strategy, closes)
+    start = next((i for i, p in enumerate(pos) if p is not None and i >= first), None)
+    if start is None or len(closes) - start < 60:
+        raise ApiError("历史数据不足，无法回测")
+    fee = fee_bp / 10000
+    eq, bh, trades = [1.0 - fee if pos[start] else 1.0], [1.0], []
+    entry, entry_eq = (start, eq[0]) if pos[start] else (None, None)  # 预热期一结束就持有，也算一笔开仓，同样扣手续费
+    exposure = 0
+    for i in range(start + 1, len(closes)):
+        r = closes[i] / closes[i - 1] - 1
+        held = pos[i - 1] or 0
+        exposure += held
+        e = eq[-1] * (1 + held * r)
+        if (pos[i] or 0) != held:  # 收盘换仓，扣手续费
+            e *= 1 - fee
+            if pos[i]:
+                entry, entry_eq = i, e
+            elif entry is not None:
+                trades.append({"entry": entry, "exit": i, "ret": (e / entry_eq - 1) * 100})
+                entry = None
+        eq.append(e)
+        bh.append(bh[-1] * (1 + r))
+    open_trade = None
+    if entry is not None:
+        open_trade = {"entry": entry, "ret": (eq[-1] / entry_eq - 1) * 100}
+    t = ts[start:]
+    wins = [x for x in trades if x["ret"] > 0]
+    half = len(eq) // 2
+    halves = []
+    for a, b in ((0, half), (half - 1, len(eq))):  # 后半段从前半段的最后一天起算，两段收益连乘等于全程
+        seg, segb = eq[a:b], bh[a:b]
+        if len(seg) > 2:
+            st, sb = perf_stats([x / seg[0] for x in seg], t[a:b]), perf_stats([x / segb[0] for x in segb], t[a:b])
+            halves.append({"from": t[a], "to": t[b - 1], "total": st["total"], "bh_total": sb["total"], "mdd": st["mdd"], "sharpe": st["sharpe"]})
+    step = -(-len(eq) // 300)  # 向上取整：最多约 300 个点
+    idx = list(range(0, len(eq), step))
+    if idx[-1] != len(eq) - 1:
+        idx.append(len(eq) - 1)  # 最后一根一定要在：图的终点要和表里的总收益、结束日期一致
+    pick = lambda arr: [arr[i] for i in idx]
+    return {"strategy": strategy, "fee_bp": fee_bp, "start": t[0], "end": t[-1], "days": len(eq) - 1,
+            "stats": perf_stats(eq, t), "bh": perf_stats(bh, t), "exposure": exposure / max(1, len(eq) - 1) * 100,
+            "trades": len(trades), "win_rate": len(wins) / len(trades) * 100 if trades else None,
+            "avg_trade": sum(x["ret"] for x in trades) / len(trades) if trades else None,
+            "open_trade": open_trade, "halves": halves, "in_position": bool(pos[-1]),
+            "series": {"ts": pick(t), "eq": [round(x, 5) for x in pick(eq)], "bh": [round(x, 5) for x in pick(bh)], "pos": pick([int(p or 0) for p in pos[start:]])},
+            "recent_trades": [{"entry": ts[x["entry"]], "exit": ts[x["exit"]], "ret": x["ret"]} for x in trades[-12:]]}
+
+
+BARS = {"2y": 504, "5y": 1260, "10y": None}  # 各区间大约的交易日数
+
+
+def lab_chart(sym, rng="10y"):
+    """量化实验室的三个接口（回测 / 统计区间 / 预测检验）共用同一份 10 年日线，再按需要截取：
+    同一个品种只向 Yahoo 请求一次，内部人分析的 daily_hist 也用这份缓存"""
+    d = yahoo_chart(sym, "10y", ttl=6 * 3600)
+    n = BARS.get(rng)
+    if n and len(d["close"]) > n:
+        d = {**d, "close": d["close"][-n:], "ts": d["ts"][-n:], "volume": d["volume"][-n:]}
+    return d
+
+
+def backtest(sym, strategy="ma_cross", rng="5y", fee_bp=5):
+    if strategy not in STRATEGIES:
+        raise ApiError(f"未知策略: {strategy}")
+    if rng not in BT_RANGES:
+        rng = "5y"
+    d = lab_chart(sym, "10y")
+    n = BARS.get(rng)
+    out = run_backtest(d["close"], d["ts"], strategy, fee_bp, first=max(0, len(d["close"]) - n) if n else 0)
+    return {**out, "sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "range": rng, "price": d["close"][-1]}
+
+
+# 统计区间（“波动率锥”）：用过去一年的日对数收益率波动率，假设未来收益率对称、无漂移，给出 N 个交易日后价格的 68% / 95% 区间，
+# 以及按同样假设算出的“到达某个价位”的概率。还会回看过去一年：当时给出的区间实际覆盖了多少比例的结果，用来检验假设靠不靠谱。
+
+HORIZONS = (5, 10, 20, 60)
+
+
+def norm_cdf(x):
+    return 0.5 * (1 + math.erf(x / 2 ** 0.5))
+
+
+def log_returns(closes):
+    return [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes)) if closes[i - 1] > 0 and closes[i] > 0]
+
+
+def stdev(xs):
+    if len(xs) < 2:
+        return None
+    m = sum(xs) / len(xs)
+    return (sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5
+
+
+def vol_cone(closes, target=None, lookback=252):
+    rets = log_returns(closes)
+    if len(rets) < 60:
+        raise ApiError("历史数据不足，无法计算统计区间")
+    sig = stdev(rets[-lookback:])
+    if not sig:
+        raise ApiError("价格没有波动，无法计算统计区间")
+    sig20 = stdev(rets[-20:])
+    price = closes[-1]
+    bands = []
+    for h in HORIZONS:
+        s = sig * h ** 0.5
+        bands.append({"h": h, "lo1": price * math.exp(-s), "hi1": price * math.exp(s), "lo2": price * math.exp(-2 * s), "hi2": price * math.exp(2 * s), "sigma": s * 100})
+    # 20 日波动率在过去一年里的百分位：现在是“安静”还是“动荡”
+    hist20 = [stdev(rets[i - 20:i]) for i in range(max(20, len(rets) - lookback), len(rets) + 1)]
+    hist20 = [x for x in hist20 if x]
+    vol_pct = sum(1 for x in hist20 if x < sig20) / len(hist20) * 100 if hist20 and sig20 else None
+    prob = None
+    if target and target > 0:
+        prob = []
+        for h in HORIZONS:
+            s = sig * h ** 0.5
+            z = math.log(target / price) / s
+            end = 1 - norm_cdf(z) if target >= price else norm_cdf(z)  # 到期时在目标价那一侧的概率
+            prob.append({"h": h, "end": end * 100, "touch": min(100.0, 2 * end * 100)})  # 期间内曾触及：反射原理，约为到期概率的两倍
+    # 回看校验：过去一年每一天用当时的波动率给出的 1σ / 2σ 区间，实际有多少比例的结果落在区间内（理论 68% / 95%）
+    coverage = {}
+    for h in (5, 20):
+        inside1 = inside2 = total = 0
+        for i in range(len(closes) - lookback - h, len(closes) - h):
+            if i < lookback + 1:
+                continue
+            s_i = stdev(rets[i - 1 - lookback:i - 1])
+            if not s_i:
+                continue
+            move = abs(math.log(closes[i + h] / closes[i]))
+            total += 1
+            inside1 += move <= s_i * h ** 0.5
+            inside2 += move <= 2 * s_i * h ** 0.5
+        if total >= 30:
+            coverage[h] = {"n": total, "c1": inside1 / total * 100, "c2": inside2 / total * 100}
+    return {"price": price, "sigma_d": sig * 100, "sigma_y": sig * 252 ** 0.5 * 100, "sigma20_y": sig20 * 252 ** 0.5 * 100 if sig20 else None,
+            "vol_pctile": vol_pct, "bands": bands, "target": target, "prob": prob, "coverage": coverage, "n": len(rets[-lookback:])}
+
+
+def forecast(sym, target=None):
+    d = lab_chart(sym, "2y")  # 波动率看过去一年，回看校验再往前一年：2 年足够
+    return {**vol_cone(d["close"], target), "sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "last_ts": d["ts"][-1]}
+
+
+# ---------------------------------------------------------------- 预测检验：历史相似情形、样本外逻辑回归、季节性
+# 三样东西回答的都是“历史上出现这种情况之后发生了什么”，并把结果和不看任何信息的基准率放在一起；
+# 模型部分用训练期 / 检验期分开，报告的是检验期（样本外）的命中率和 Brier 分数——绝大多数品种会接近基准，这本身就是结论。
+
+SIG_H = (5, 20)
+_signals_cache = {}
+_signals_lock = threading.Lock()
+
+
+def feature_rows(closes):
+    """每一天的特征：近 5 / 20 / 60 日收益、RSI(14)、相对 200 日均线、20 日 / 252 日波动比、52 周区间位置。前 260 天没有特征"""
+    n = len(closes)
+    m200 = sma(closes, 200)
+    rets = [None] + [math.log(closes[i] / closes[i - 1]) if closes[i - 1] > 0 and closes[i] > 0 else 0.0 for i in range(1, n)]
+    rows = [None] * n
+    for i in range(260, n):
+        r = rets[i - 19:i + 1]
+        v20 = stdev(r)
+        v252 = stdev(rets[i - 251:i + 1])
+        if v20 is None or not v252 or not m200[i]:  # 停牌（近 20 日价格不变）时 v20 = 0，照样算特征，不当成历史不足
+            continue
+        win = closes[i - 251:i + 1]
+        lo, hi = min(win), max(win)
+        rows[i] = {"r5": closes[i] / closes[i - 5] - 1, "r20": closes[i] / closes[i - 20] - 1, "r60": closes[i] / closes[i - 60] - 1,
+                   "rsi": (rsi(closes[i - 119:i + 1]) or 50) / 100 - 0.5, "ma200": closes[i] / m200[i] - 1, "volr": v20 / v252 - 1,
+                   "pos52": (closes[i] - lo) / (hi - lo) - 0.5 if hi > lo else 0.0}
+    return rows
+
+
+FEATURES = ("r5", "r20", "r60", "rsi", "ma200", "volr", "pos52")
+
+
+def state_of(f):
+    return {"trend": "above" if f["ma200"] > 0 else "below", "mom": "up" if f["r20"] > 0 else "down",
+            "rsi": "oversold" if f["rsi"] < -0.2 else "overbought" if f["rsi"] > 0.2 else "neutral",
+            "vol": "high" if f["volr"] > 0.2 else "low" if f["volr"] < -0.2 else "normal"}
+
+
+def quantile(sorted_vals, q):
+    if not sorted_vals:
+        return None
+    k = (len(sorted_vals) - 1) * q
+    lo, hi = math.floor(k), math.ceil(k)
+    return sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * (k - lo)
+
+
+def analog_stats(closes, rows, cur):
+    """和当前状态相同的历史日子之后 5 / 20 日的收益分布；样本太少就逐步放宽条件"""
+    n = len(closes)
+    keys_order = (("trend", "mom", "rsi"), ("trend", "mom"), ("trend",))
+    cur_state = state_of(cur)
+    states = {i: state_of(rows[i]) for i in range(260, n - SIG_H[-1]) if rows[i]}
+    for keys in keys_order:
+        idx = [i for i, st in states.items() if all(st[k] == cur_state[k] for k in keys)]
+        if len(idx) >= 40:
+            break
+    out = {"state": cur_state, "matched_on": list(keys), "n": len(idx), "horizons": []}
+    for h in SIG_H:
+        fwd = sorted((closes[i + h] / closes[i] - 1) * 100 for i in idx)
+        base = sorted((closes[i + h] / closes[i] - 1) * 100 for i in range(260, n - h) if rows[i])
+        out["horizons"].append({"h": h, "n": len(fwd), "hit": sum(1 for x in fwd if x > 0) / len(fwd) * 100 if fwd else None,
+                                "base_hit": sum(1 for x in base if x > 0) / len(base) * 100 if base else None,
+                                "median": quantile(fwd, 0.5), "p25": quantile(fwd, 0.25), "p75": quantile(fwd, 0.75),
+                                "mean": sum(fwd) / len(fwd) if fwd else None, "base_median": quantile(base, 0.5)})
+    return out
+
+
+def solve(a, b):
+    """高斯消元解 a·x = b（小矩阵）"""
+    n = len(b)
+    m = [row[:] + [b[i]] for i, row in enumerate(a)]
+    for col in range(n):
+        piv = max(range(col, n), key=lambda r: abs(m[r][col]))
+        m[col], m[piv] = m[piv], m[col]
+        if abs(m[col][col]) < 1e-12:
+            m[col][col] = 1e-12
+        for r in range(n):
+            if r != col:
+                f = m[r][col] / m[col][col]
+                if f:
+                    m[r] = [x - f * y for x, y in zip(m[r], m[col])]
+    return [m[i][n] / m[i][i] for i in range(n)]
+
+
+def logit_fit(X, y, l2=1.0, iters=12):
+    """逻辑回归（牛顿法 + L2 正则）。X 已标准化并带截距列"""
+    k = len(X[0])
+    w = [0.0] * k
+    for _ in range(iters):
+        g = [0.0] * k
+        H = [[0.0] * k for _ in range(k)]
+        for xi, yi in zip(X, y):
+            z = sum(wj * xj for wj, xj in zip(w, xi))
+            p = 1 / (1 + math.exp(-max(-30, min(30, z))))
+            d = p - yi
+            s = p * (1 - p)
+            for a in range(k):
+                g[a] += d * xi[a]
+                for b in range(a, k):
+                    H[a][b] += s * xi[a] * xi[b]
+        for a in range(k):
+            for b in range(a):
+                H[a][b] = H[b][a]
+        for a in range(1, k):  # 不正则化截距
+            g[a] += l2 * w[a]
+            H[a][a] += l2
+        step = solve(H, g)
+        w = [wi - si for wi, si in zip(w, step)]
+        if max(abs(s) for s in step) < 1e-6:
+            break
+    return w
+
+
+def standardize(rows, idx):
+    mu = {f: sum(rows[i][f] for i in idx) / len(idx) for f in FEATURES}
+    sd = {f: (sum((rows[i][f] - mu[f]) ** 2 for i in idx) / max(1, len(idx) - 1)) ** 0.5 or 1.0 for f in FEATURES}
+    return mu, sd
+
+
+def vec(f, mu, sd):
+    return [1.0] + [(f[k] - mu[k]) / sd[k] for k in FEATURES]
+
+
+def predict(w, x):
+    return 1 / (1 + math.exp(-max(-30, min(30, sum(a * b for a, b in zip(w, x))))))
+
+
+def model_eval(closes, rows, h=20, test_days=252):
+    """训练期 = 检验期之前的全部历史；检验期 = 最近 test_days 天（目标已知的部分）。再用全部数据拟合一次给出当前概率"""
+    n = len(closes)
+    labeled = [i for i in range(260, n - h) if rows[i]]
+    if len(labeled) < 400:
+        raise ApiError("历史数据不足，无法检验模型（至少约 3 年）")
+    split = n - h - test_days
+    train = [i for i in labeled if i < split - h]  # 训练样本的标签要在检验期开始之前就已知：留出 h 天空档，避免标签泄漏
+    test = [i for i in labeled if i >= split]
+    if len(train) < 250 or len(test) < 100:
+        raise ApiError("历史数据不足，无法检验模型（至少约 3 年）")
+    y = {i: 1 if closes[i + h] > closes[i] else 0 for i in labeled}
+    mu, sd = standardize(rows, train)
+    w = logit_fit([vec(rows[i], mu, sd) for i in train], [y[i] for i in train])
+    base = sum(y[i] for i in train) / len(train)  # 训练期上涨比例：最朴素的“预测”
+    probs = [(predict(w, vec(rows[i], mu, sd)), y[i]) for i in test]
+    acc = sum(1 for p, t in probs if (p >= 0.5) == (t == 1)) / len(probs) * 100
+    base_acc = sum(1 for _, t in probs if (base >= 0.5) == (t == 1)) / len(probs) * 100  # 基准：一直预测训练期的多数方向
+    brier = sum((p - t) ** 2 for p, t in probs) / len(probs)
+    brier_base = sum((base - t) ** 2 for _, t in probs) / len(probs)
+    test_up = sum(t for _, t in probs) / len(probs) * 100
+    # 校准：预测概率分 3 档，各档实际上涨比例
+    bins = []
+    for lo, hi in ((0, 0.4), (0.4, 0.6), (0.6, 1.01)):
+        sel = [t for p, t in probs if lo <= p < hi]
+        bins.append({"range": [lo, min(hi, 1)], "n": len(sel), "up": sum(sel) / len(sel) * 100 if sel else None})
+    # 全样本拟合 → 当前概率
+    mu2, sd2 = standardize(rows, labeled)
+    w2 = logit_fit([vec(rows[i], mu2, sd2) for i in labeled], [y[i] for i in labeled])
+    cur = rows[n - 1]
+    p_now = predict(w2, vec(cur, mu2, sd2))
+    weights = sorted(({"feature": f, "w": w2[k + 1]} for k, f in enumerate(FEATURES)), key=lambda x: -abs(x["w"]))
+    return {"h": h, "train_n": len(train), "test_n": len(test), "accuracy": acc, "base_accuracy": base_acc, "base_rate": base * 100, "test_up": test_up,
+            "brier": brier, "brier_base": brier_base, "skill": (1 - brier / brier_base) * 100 if brier_base else None,
+            "calibration": bins, "p_now": p_now * 100, "weights": weights,
+            "useful": acc >= base_acc + 3 and brier < brier_base}
+
+
+def seasonality(closes, ts):
+    by_m = {m: [] for m in range(1, 13)}
+    by_w = {d: [] for d in range(5)}
+    prev_key = None
+    month_start = None
+    for i, t in enumerate(ts):
+        dt = datetime.fromtimestamp(t, timezone.utc)
+        if i:
+            by_w.setdefault(dt.weekday(), []).append(closes[i] / closes[i - 1] - 1)
+        key = (dt.year, dt.month)
+        if key != prev_key:
+            if prev_key is not None and month_start is not None:
+                by_m[prev_key[1]].append(closes[i - 1] / month_start - 1)  # 月收益 = 本月最后收盘 / 上月最后收盘
+            month_start = closes[i - 1] if i else None  # 第一个月不知道上月收盘，跳过
+            prev_key = key
+    def agg(vals):
+        return {"n": len(vals), "mean": sum(vals) / len(vals) * 100 if vals else None, "hit": sum(1 for v in vals if v > 0) / len(vals) * 100 if vals else None}
+    return {"months": [{"m": m, **agg(v)} for m, v in by_m.items()], "weekdays": [{"d": d, **agg(by_w.get(d, []))} for d in range(5)]}
+
+
+def signals(sym):
+    sym = sym.strip().upper()
+    with _signals_lock:
+        hit = _signals_cache.get(sym)
+    if hit and time.time() - hit[0] < 3600:
+        return hit[1]
+    d = lab_chart(sym)
+    closes, ts = d["close"], d["ts"]
+    rows = feature_rows(closes)
+    if not rows[-1]:
+        raise ApiError("历史数据不足，无法计算（至少约 1 年）")
+    out = {"sym": d["sym"], "name": NAMES.get(d["sym"]) or d["name"], "currency": d["currency"], "price": closes[-1], "last_ts": ts[-1], "years": (ts[-1] - ts[0]) / (365.25 * 86400),
+           "features": rows[-1], "analogs": analog_stats(closes, rows, rows[-1]), "seasonality": seasonality(closes, ts), "model": None, "model_error": None}
+    try:
+        out["model"] = model_eval(closes, rows)
+    except ApiError as e:
+        out["model_error"] = str(e)
+    with _signals_lock:
+        _signals_cache[sym] = (time.time(), out)
+        while len(_signals_cache) > 50:
+            _signals_cache.pop(next(iter(_signals_cache)))
+    return out
+
+
+# ---------------------------------------------------------------- 跨资产相关性（日收益率的 Pearson 相关系数）
+# 用市场总览已经缓存的 2 年日线算，不额外请求；窗口按交易日数取（20 ≈ 1 个月、60 ≈ 1 季度、250 ≈ 1 年）
+
+CORR_DAYS = (20, 60, 250)
+
+
+def pearson(xs, ys):
+    n = len(xs)
+    if n < 3:
+        return None
+    mx, my = sum(xs) / n, sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    syy = sum((y - my) ** 2 for y in ys)
+    if sxx <= 0 or syy <= 0:
+        return None
+    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (sxx * syy) ** 0.5
+
+
+def corr_matrix(charts, days):
+    """charts: {sym: {"ts": [...], "close": [...]}}。按日期对齐（各市场假日不同，只取大家都有的交易日），
+    取最近 days 天的对数收益率两两算相关系数。返回 (syms, matrix, 实际天数)"""
+    by_day = {}
+    for sym, d in charts.items():
+        by_day[sym] = {datetime.fromtimestamp(t, timezone.utc).date().isoformat(): c for t, c in zip(d["ts"], d["close"]) if c}
+    syms = [s for s in charts if by_day[s]]
+    common = sorted(set.intersection(*(set(by_day[s]) for s in syms))) if syms else []
+    common = common[-(days + 1):]  # 要 days 个收益率需要 days+1 个收盘价
+    if len(common) < 4:
+        raise ApiError("历史数据不足，无法计算相关性")
+    rets = {s: [math.log(by_day[s][d1] / by_day[s][d0]) for d0, d1 in zip(common, common[1:])] for s in syms}
+    matrix = [[1.0 if a == b else pearson(rets[a], rets[b]) for b in syms] for a in syms]
+    return syms, matrix, len(common) - 1
+
+
+def corr(days=60):
+    days = int(days) if int(days) in CORR_DAYS else 60
+    syms = INDICES + COMMODS
+    jobs = {s: POOL.submit(yahoo_chart, s, "2y") for s in syms}
+    charts, errors = {}, {}
+    for s, fut in jobs.items():
+        try:
+            charts[s] = fut.result(timeout=60)
+        except Exception as e:  # noqa: BLE001 — 单个品种失败就不进矩阵
+            errors[s] = str(e)[:160]
+    order, matrix, n = corr_matrix(charts, days)
+    return {"syms": order, "names": [NAMES.get(s, s) for s in order], "days": days, "n": n,
+            "matrix": [[None if v is None else round(v, 3) for v in row] for row in matrix], "errors": errors}
+
+
 # ---------------------------------------------------------------- 自选监控 + 后台异动提醒（macOS 通知）
 
 DEFAULT_WATCH = [
     {"sym": "AAPL", "label": "Apple"}, {"sym": "NVDA", "label": "NVIDIA"}, {"sym": "0700.HK", "label": "Tencent"},
     {"sym": "9988.HK", "label": "Alibaba"}, {"sym": "GC=F", "label": "Gold"}, {"sym": "CL=F", "label": "WTI Crude"},
 ]
+
+
+def watch_item_from(b, keep_added=False):
+    """把请求 / 导入文件里的一条自选整理成标准格式，不合法的代码直接报错"""
+    sym = str(b.get("sym") or "").strip().upper()
+    if not sym:
+        raise ApiError("请输入代码")
+    if not re.match(SYM_RE, sym):
+        raise ApiError(f"代码格式不正确: {sym[:20]}")
+    added = None
+    if keep_added:
+        try:
+            added = int(num(b.get("added"), 0, 4e9)) or None
+        except ApiError:
+            added = None  # 导入文件里这个字段只是“加入时间”，坏了就用现在
+    return {"sym": sym, "label": str(b.get("label") or "").strip()[:40], "move_pct": num(b.get("move_pct"), 0, 100), "vol_mult": num(b.get("vol_mult"), 0, 100),
+            "rsi_alert": bool(b.get("rsi_alert", True)), "hi52_alert": bool(b.get("hi52_alert", True)), "ma_alert": bool(b.get("ma_alert", True)),
+            "above": num(b.get("above"), 0, 1e9), "below": num(b.get("below"), 0, 1e9),
+            "added": added or int(time.time())}
+
+
+def import_backup(b):
+    """导入导出文件：自选 + 持仓 + 13F 基金列表。merge（默认）只添加本机没有的；replace 只替换自选列表——
+    持仓和基金列表永远只添加，免得从另一台没有持仓的电脑导入时把本机持仓清空。格式不对的单条跳过，不让整次导入失败"""
+    wl, ms, ps, replace = b.get("watchlist"), b.get("managers"), b.get("positions"), bool(b.get("replace"))
+    if not isinstance(wl, list) or len(wl) > 200 or not all(isinstance(x, dict) for x in wl):
+        raise ApiError("导入文件格式不正确")
+    pos, skipped = [], 0
+    if isinstance(ps, list) and len(ps) <= 200:
+        seen_p = set()
+        for x in ps:
+            if isinstance(x, dict):
+                try:
+                    it = position_from(x)
+                except ApiError:
+                    skipped += 1
+                    continue
+                if it["sym"] not in seen_p:
+                    seen_p.add(it["sym"])
+                    pos.append(it)
+    items, seen = [], set()
+    for x in wl:
+        try:
+            it = watch_item_from(x, keep_added=True)
+        except ApiError:
+            skipped += 1
+            continue
+        if it["sym"] not in seen:
+            seen.add(it["sym"])
+            items.append(it)
+    good = []
+    for m in (ms if isinstance(ms, list) else [])[:100]:
+        if not isinstance(m, dict):
+            continue
+        try:
+            cik = int(str(m.get("cik", "")).strip().lstrip("0") or 0)
+        except ValueError:
+            continue
+        if cik:
+            good.append({"cik": cik, "name": str(m.get("name") or "").strip()[:60] or f"CIK {cik}"})
+    if skipped and not (items or pos or good):
+        raise ApiError("导入文件里没有格式正确的记录")
+    with _store_lock:
+        cur = watchlist()
+        have = {c["sym"] for c in cur}
+        new_items = items if replace else cur + [i for i in items if i["sym"] not in have]
+        save_json("watchlist.json", new_items)
+        added = len(new_items) if replace else len(new_items) - len(cur)
+        p_added = 0
+        if pos:
+            curp = positions()
+            havep = {c["sym"] for c in curp}
+            new_p = curp + [p for p in pos if p["sym"] not in havep]
+            p_added = len(new_p) - len(curp)
+            save_json("positions.json", new_p)
+        m_added = 0
+        if good:
+            curm = managers()
+            havem = {c["cik"] for c in curm}
+            new_m = curm + [g for g in good if g["cik"] not in havem]
+            m_added = len(new_m) - len(curm)
+            save_json("managers.json", new_m)
+    return {"watchlist": len(new_items), "added": added, "managers_added": m_added, "positions_added": p_added, "skipped": skipped, "replaced": replace}
+
+
+# ---- 持仓盈亏：本机记录的持仓（代码、股数、平均成本），用行情算市值、盈亏、当日盈亏和权重；非美元品种按 Yahoo 汇率折成美元合计
+
+def position_from(b):
+    sym = str(b.get("sym") or "").strip().upper()
+    if not sym:
+        raise ApiError("请输入代码")
+    if not re.match(SYM_RE, sym):
+        raise ApiError(f"代码格式不正确: {sym[:20]}")
+    shares = num(b.get("shares"), 0, 1e12)
+    if shares <= 0:
+        raise ApiError("股数必须大于 0")
+    added = b.get("added")
+    try:
+        added = int(num(added, 0, 4e9)) or None
+    except ApiError:
+        added = None
+    return {"sym": sym, "shares": shares, "cost": num(b.get("cost"), 0, 1e9), "note": str(b.get("note") or "").strip()[:60], "added": added or int(time.time())}
+
+
+def positions():
+    """调用方负责持有 _store_lock"""
+    return load_json("positions.json", [])
+
+
+MINOR_CCY = {"GBp": ("GBP", 100), "GBX": ("GBP", 100), "ZAc": ("ZAR", 100), "ZAC": ("ZAR", 100), "ILA": ("ILS", 100)}  # 报价单位 → (主币, 每 1 主币的数量)
+
+
+def portfolio(swr=True):
+    with _store_lock:
+        items = positions()
+    jobs = {p["sym"]: POOL.submit(quote_summary, p["sym"], "2y", swr) for p in items}
+    rows = []
+    for p in items:
+        try:
+            q = jobs[p["sym"]].result(timeout=60)
+        except Exception as e:  # noqa: BLE001 — 个别品种失败不影响其他
+            rows.append({**p, "error": str(e)[:160]})
+            continue
+        value, cost_total = p["shares"] * q["price"], p["shares"] * p["cost"]
+        rows.append({**p, "name": q["name"], "currency": q.get("currency") or "USD", "price": q["price"], "chg1d": q["chg1d"],
+                     "value": value, "cost_total": cost_total, "pnl": value - cost_total, "pnl_pct": (value / cost_total - 1) * 100 if cost_total else None,
+                     "day_pnl": p["shares"] * q["abs1d"] if q.get("abs1d") is not None else None, "spark": (q.get("spark") or [])[-22:], "stale": bool(q.get("stale"))})
+    ok = [r for r in rows if not r.get("error")]
+    fx = {"USD": 1.0}  # 1 美元 = 多少该货币（Yahoo 的 HKD=X 等）
+    # 伦敦 / 约翰内斯堡 / 特拉维夫的股票按“分”报价（GBp、ZAc、ILA）：用主币汇率 × 100，否则折成美元会大 100 倍
+    minor = lambda c: MINOR_CCY.get(c, (c.upper(), 1))  # noqa: E731
+    fx_jobs = {c: POOL.submit(quote_summary, f"{minor(c)[0]}=X", "2y", swr) for c in {r["currency"] for r in ok} - {"USD"}}
+    for c, fut in fx_jobs.items():
+        try:
+            fx[c] = fut.result(timeout=60)["price"] * minor(c)[1]
+        except Exception:  # noqa: BLE001 — 汇率取不到就只按币种分列
+            pass
+    totals = {}
+    for r in ok:
+        t = totals.setdefault(r["currency"], {"currency": r["currency"], "value": 0.0, "cost": 0.0, "pnl": 0.0, "day_pnl": 0.0, "n": 0})
+        t["value"] += r["value"]
+        t["cost"] += r["cost_total"]
+        t["pnl"] += r["pnl"]
+        t["day_pnl"] += r["day_pnl"] or 0
+        t["n"] += 1
+    conv = [r for r in ok if r["currency"] in fx and fx[r["currency"]]]
+    usd_value = sum(r["value"] / fx[r["currency"]] for r in conv)
+    usd_cost = sum(r["cost_total"] / fx[r["currency"]] for r in conv)
+    usd_day = sum((r["day_pnl"] or 0) / fx[r["currency"]] for r in conv)
+    for r in ok:
+        r["value_usd"] = r["value"] / fx[r["currency"]] if r["currency"] in fx and fx[r["currency"]] else None
+        r["weight"] = r["value_usd"] / usd_value * 100 if r["value_usd"] is not None and usd_value else None
+    rows.sort(key=lambda r: -(r.get("value_usd") or r.get("value") or 0))
+    usd = {"value": usd_value, "cost": usd_cost, "pnl": usd_value - usd_cost, "pnl_pct": (usd_value / usd_cost - 1) * 100 if usd_cost else None,
+           "day_pnl": usd_day, "day_pct": usd_day / (usd_value - usd_day) * 100 if usd_value - usd_day else None, "n": len(conv)} if conv else None
+    return {"positions": rows, "totals": sorted(totals.values(), key=lambda t: -(t["value"] / fx[t["currency"]] if fx.get(t["currency"]) else t["value"])), "usd": usd, "fx": fx,
+            "unconverted": sorted({r["currency"] for r in ok} - set(fx)), "stale": any(r.get("stale") for r in ok), "errors": {r["sym"]: r["error"] for r in rows if r.get("error")}}
 
 
 def watchlist():
@@ -501,13 +1201,31 @@ def check_item(item, swr=True):
         flags.append("hi52")
     elif use_52 and q["new_lo52"]:
         flags.append("lo52")
-    return {**q, "label": item.get("label") or "", "move_pct": move, "vol_mult": mult, "rsi_alert": use_rsi, "hi52_alert": use_52, "flags": flags}
+    # 均线金叉 / 死叉：20 日均线今天上穿 / 下穿 50 日均线（昨天还在另一侧）
+    use_ma = item.get("ma_alert", True)
+    m20, m50, p20, p50 = q.get("ma20"), q.get("ma50"), q.get("ma20_prev"), q.get("ma50_prev")
+    if use_ma and None not in (m20, m50, p20, p50):
+        if p20 <= p50 and m20 > m50:
+            flags.append("golden")
+        elif p20 >= p50 and m20 < m50:
+            flags.append("death")
+    # 目标价：只在“今天穿越”时提醒（昨收在目标价另一侧），停在目标价之外不会每天重复；目标价为 0 / 空表示未设置
+    above, below = float(item.get("above") or 0), float(item.get("below") or 0)
+    price, prev = q.get("price"), q.get("prev_close")
+    if prev is not None and price is not None:
+        if above > 0 and prev < above <= price:
+            flags.append("above")
+        if below > 0 and prev > below >= price:
+            flags.append("below")
+    return {**q, "label": item.get("label") or "", "move_pct": move, "vol_mult": mult, "rsi_alert": use_rsi, "hi52_alert": use_52, "ma_alert": use_ma,
+            "above": above or None, "below": below or None, "flags": flags}
 
 
 def refresh_watchlist(swr=True):
     with _store_lock:
         items = watchlist()
     jobs = [(i, POOL.submit(check_item, i, swr)) for i in items]
+    spx_job = POOL.submit(quote_summary, "^GSPC", "2y", swr)  # 相对强弱的基准
     rows = []
     for item, fut in jobs:
         try:
@@ -515,19 +1233,25 @@ def refresh_watchlist(swr=True):
         except Exception as e:  # noqa: BLE001
             rows.append({"sym": item["sym"], "label": item.get("label") or "", "error": str(e)[:160],
                          "move_pct": item.get("move_pct"), "vol_mult": item.get("vol_mult"), "flags": []})
+    try:
+        spx = spx_job.result(timeout=60)
+    except Exception:  # noqa: BLE001 — 基准取不到就不算相对强弱
+        spx = None
+    for r in rows:  # 相对强弱：1 个月涨跌幅减去标普同期涨跌幅（百分点）
+        r["rs1m"] = r["chg1m"] - spx["chg1m"] if spx and spx.get("chg1m") is not None and r.get("chg1m") is not None else None
     return rows
 
 
 ALERT_TEXT = {
     "zh": {"title": "量化股神 · 异动提醒", "move": "价格异动", "volume": "放量", "vs": "为 20 日均量",
            "rsi_hi": "RSI 进入超买区", "rsi_lo": "RSI 进入超卖区", "hi52": "创 52 周新高", "lo52": "创 52 周新低", "more": "另有 {n} 条异动，打开量化股神查看",
-           "test": "测试通知：后台提醒工作正常"},
+           "above": "升破目标价", "below": "跌破目标价", "golden": "均线金叉（20 日上穿 50 日）", "death": "均线死叉（20 日下穿 50 日）", "test": "测试通知：后台提醒工作正常"},
     "ja": {"title": "クオンツ株神 · 急変アラート", "move": "価格急変", "volume": "出来高急増", "vs": "（20日平均比）",
            "rsi_hi": "RSI が買われ過ぎ圏へ", "rsi_lo": "RSI が売られ過ぎ圏へ", "hi52": "52 週高値を更新", "lo52": "52 週安値を更新", "more": "他に {n} 件の急変。クオンツ株神で確認してください",
-           "test": "テスト通知：バックグラウンド通知は正常です"},
+           "above": "目標価格を上抜け", "below": "目標価格を下抜け", "golden": "ゴールデンクロス（20 日線が 50 日線を上抜け）", "death": "デッドクロス（20 日線が 50 日線を下抜け）", "test": "テスト通知：バックグラウンド通知は正常です"},
     "en": {"title": "Quant Stock God · Alert", "move": "Price move", "volume": "Volume spike", "vs": "vs 20d avg",
            "rsi_hi": "RSI entered overbought", "rsi_lo": "RSI entered oversold", "hi52": "New 52-week high", "lo52": "New 52-week low", "more": "{n} more alerts — open Quant Stock God",
-           "test": "Test notification: background alerts are working"},
+           "above": "Crossed above target", "below": "Crossed below target", "golden": "Golden cross (20d over 50d)", "death": "Death cross (20d under 50d)", "test": "Test notification: background alerts are working"},
 }
 _alert = {"last_run": None, "last_error": None, "next_run": 0, "running": False, "skipped": []}
 _alert_lock = threading.Lock()
@@ -595,12 +1319,13 @@ def run_alerts():
                 continue
             day = datetime.fromtimestamp(r["last_ts"], timezone.utc).date().isoformat()
             for f in r["flags"]:
-                key = f"{r['sym']}:{f}:{day}"
+                key = f"{r['sym']}:{f}:{day}" + (f":{r.get(f)}" if f in ("above", "below") else "")  # 当天改了目标价，新价位再穿越还要提醒
                 if key in marks:
                     continue
                 marks[key] = int(time.time())
                 found.append({"ts": int(time.time()), "sym": r["sym"], "label": r["label"], "type": f, "price": r["price"],
-                              "chg1d": r["chg1d"], "vol_ratio": r["vol_ratio"], "rsi14": r["rsi14"], "currency": r["currency"]})
+                              "chg1d": r["chg1d"], "vol_ratio": r["vol_ratio"], "rsi14": r["rsi14"], "currency": r["currency"],
+                              "target": r.get(f) if f in ("above", "below") else None})
         cutoff = time.time() - 10 * 86400
         marks = {k: v for k, v in marks.items() if v > cutoff}
         with _store_lock:
@@ -615,6 +1340,8 @@ def run_alerts():
                 text = f"{who} {T['volume']} ×{r['vol_ratio']:.1f} {T['vs']} · {r['chg1d']:+.2f}%"
             elif r["type"] in ("rsi_hi", "rsi_lo"):
                 text = f"{who} {T[r['type']]} · RSI {r['rsi14']:.0f} · {r['price']:,.2f}"
+            elif r["type"] in ("above", "below"):
+                text = f"{who} {T[r['type']]} {r['target']:,.2f} · {r['price']:,.2f} ({r['chg1d']:+.2f}%)"
             else:
                 text = f"{who} {T[r['type']]} · {r['price']:,.2f} ({r['chg1d']:+.2f}%)"
             notify(T["title"], text, st["sound"])
@@ -629,6 +1356,99 @@ def run_alerts():
         _alert_lock.release()
 
 
+# ---- 每日摘要：每天到设定时间（本机时区）推送一条系统通知，概括主要指数 / 商品、恐惧贪婪和自选里最强 / 最弱的品种
+DIGEST_TEXT = {
+    "zh": {"title": "量化股神 · 每日摘要", "fng": "恐惧贪婪", "best": "自选最强", "worst": "自选最弱", "zones": ["极度恐慌", "恐慌", "中性", "贪婪", "极度贪婪"]},
+    "ja": {"title": "クオンツ株神 · デイリーサマリー", "fng": "恐怖と強欲", "best": "ウォッチ最強", "worst": "ウォッチ最弱", "zones": ["極度の恐怖", "恐怖", "中立", "強欲", "極度の強欲"]},
+    "en": {"title": "Quant Stock God · Daily digest", "fng": "F&G", "best": "Watch best", "worst": "Watch worst", "zones": ["Extreme fear", "Fear", "Neutral", "Greed", "Extreme greed"]},
+}
+DIGEST_SYMS = (("^GSPC", "SPX"), ("^IXIC", "IXIC"), ("^HSI", "HSI"), ("^VIX", "VIX"), ("GC=F", "GOLD"), ("CL=F", "WTI"))
+_digest = {"last_error": None, "retry_at": 0.0}
+_digest_lock = threading.Lock()
+
+
+def fng_zone(v):
+    return 0 if v <= 24 else 1 if v <= 44 else 2 if v <= 55 else 3 if v <= 74 else 4
+
+
+def digest_text(mk, rows, lang):
+    T = DIGEST_TEXT.get(lang, DIGEST_TEXT["en"])
+    q = {x["sym"]: x for x in (mk.get("indices") or []) + (mk.get("commods") or [])}
+    parts = []
+    for sym, label in DIGEST_SYMS:
+        x = q.get(sym)
+        if not x or x.get("chg1d") is None:
+            continue
+        parts.append(f"VIX {x['price']:.1f}" if sym == "^VIX" else f"{label} {x['chg1d']:+.1f}%")
+    if mk.get("fng"):
+        v = mk["fng"]["now"]
+        parts.append(f"{T['fng']} {v} {T['zones'][fng_zone(v)]}")
+    ok = [r for r in rows if r.get("chg1d") is not None and not r.get("error")]
+    if ok:
+        best, worst = max(ok, key=lambda r: r["chg1d"]), min(ok, key=lambda r: r["chg1d"])
+        parts.append(f"{T['best']} {best['sym']} {best['chg1d']:+.1f}%")
+        if worst is not best:
+            parts.append(f"{T['worst']} {worst['sym']} {worst['chg1d']:+.1f}%")
+    return T["title"], " · ".join(parts)
+
+
+def digest_settings():
+    cfg = load_json("config.json", {})
+    t = str(cfg.get("digest_time") or "08:30")
+    if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", t):
+        t = "08:30"
+    return {"enabled": bool(cfg.get("digest_enabled")), "time": t, "lang": cfg.get("alert_lang") or "en", "sound": cfg.get("alert_sound", True)}
+
+
+DIGEST_WINDOW = 2 * 3600  # 定时摘要只在设定时间之后 2 小时内补发：晚上才开机 / 才打开开关时不推“早报”
+
+
+def run_digest(scheduled=False):
+    """生成并推送一次摘要；返回记录，正在生成时返回 None。
+    scheduled_day 只记录定时推送成功的日期：手动“立即发送”不影响当天的定时推送"""
+    if not _digest_lock.acquire(blocking=False):
+        return None
+    try:
+        st = digest_settings()
+        mk, rows = market(), refresh_watchlist()
+        title, text = digest_text(mk, rows, st["lang"])
+        if not text:
+            raise ApiError("暂时没有行情数据，无法生成摘要")
+        ok, err = notify(title, text, st["sound"])
+        today = datetime.now().date().isoformat()
+        with _store_lock:
+            prev = load_json("digest.json", {}).get("scheduled_day")
+            rec = {"ts": int(time.time()), "day": today, "scheduled_day": today if scheduled and ok else prev,
+                   "title": title, "text": text, "ok": ok, "error": (err or None) if not ok else None}
+            save_json("digest.json", rec)
+        _digest["last_error"] = rec["error"]
+        return rec
+    finally:
+        _digest_lock.release()
+
+
+def digest_tick():
+    st = digest_settings()
+    if not st["enabled"]:
+        return
+    now = datetime.now()
+    hh, mm = (int(x) for x in st["time"].split(":"))
+    since = (now - now.replace(hour=hh, minute=mm, second=0, microsecond=0)).total_seconds()
+    if not 0 <= since < DIGEST_WINDOW or load_json("digest.json", {}).get("scheduled_day") == now.date().isoformat() or time.time() < _digest["retry_at"]:
+        return
+    try:
+        rec = run_digest(scheduled=True)
+        if rec and not rec["ok"]:  # 通知没发出去：10 分钟后重试，不算当天已发
+            _digest["retry_at"] = time.time() + 600
+    except Exception:
+        _digest["retry_at"] = time.time() + 600  # 没有行情数据等失败：10 分钟后再试，不要每 20 秒撞一次
+        raise
+
+
+def digest_status():
+    return {**digest_settings(), "last": load_json("digest.json", None), "running": _digest_lock.locked(), "last_error": _digest["last_error"]}
+
+
 def alert_loop():
     while True:
         time.sleep(20)
@@ -636,6 +1456,10 @@ def alert_loop():
             tilt_loop_tick()
         except Exception:  # noqa: BLE001 — 记录失败不影响提醒
             pass
+        try:
+            digest_tick()
+        except Exception as e:  # noqa: BLE001
+            _digest["last_error"] = f"{type(e).__name__}: {e}"
         try:  # 重大新闻提醒：新闻源缓存 15 分钟，所以每 15 分钟查一次
             if news_alert_settings()["enabled"]:
                 now = time.time()
@@ -679,11 +1503,11 @@ def sec_ua():
     email = config().get("sec_email", "").strip()
     if not email:
         raise ApiError("SEC EDGAR 需要联系邮箱：请在“设置”页填写（只用于 SEC 要求的 User-Agent，只保存在本机）")
-    return f"QuantStockGod/1.0 personal-research {email}"
+    return f"QuantStockGod/{VERSION} personal-research {email}"
 
 
 def sec_get(url, raw=False, ttl=3600):
-    headers = {"User-Agent": sec_ua(), "Accept-Encoding": "identity"}
+    headers = {"User-Agent": sec_ua()}
     with _cache_lock:
         hit = _cache.get(url)
     if hit and time.time() - hit[0] < ttl:
@@ -727,10 +1551,15 @@ def recent_filings(sub, forms):
     r = sub.get("filings", {}).get("recent", {})
     out = []
     for i, f in enumerate(r.get("form", [])):
-        if f in forms:
-            out.append({"form": f, "acc": r["accessionNumber"][i], "date": r["filingDate"][i],
-                        "report": r.get("reportDate", [""] * (i + 1))[i], "doc": r["primaryDocument"][i]})
+        acc, doc = r["accessionNumber"][i], r["primaryDocument"][i]
+        # 申报号和文件名会拼进 sec.gov 的 URL、缓存文件名和页面链接：格式不对的（数据源异常或被劫持）直接跳过
+        if f in forms and ACC_RE.match(acc) and DOC_RE.match(doc):
+            out.append({"form": f, "acc": acc, "date": r["filingDate"][i], "report": r.get("reportDate", [""] * (i + 1))[i], "doc": doc})
     return out
+
+
+ACC_RE = re.compile(r"^\d{10}-\d{2}-\d{6}$")  # SEC 申报号：0001234567-24-000123
+DOC_RE = re.compile(r"^(?!.*\.\.)[A-Za-z0-9_./-]{1,200}$")  # 文件名（可带 xsl 渲染目录），不允许 ..
 
 
 def strip_ns(root):
@@ -871,11 +1700,11 @@ DEFAULT_MANAGERS = [
 
 
 def managers():
+    """调用方负责持有 _store_lock（和 watchlist() 一样；锁不可重入，这里不能再加）"""
     m = load_json("managers.json", None)
     if m is None:
         m = DEFAULT_MANAGERS
-        with _store_lock:
-            save_json("managers.json", m)
+        save_json("managers.json", m)
     return m
 
 
@@ -949,7 +1778,8 @@ def manager_13f(m):
 
 
 def all_13f():
-    ms = managers()
+    with _store_lock:
+        ms = managers()
     jobs = [(m, SEC_POOL.submit(manager_13f, m)) for m in ms]
     funds, errors = [], {}
     for m, fut in jobs:
@@ -1477,7 +2307,7 @@ def fetch_feed(f):
     name = cache_name("news", f["id"])
 
     def fetch():
-        text = http_get(f["url"], ttl=900, raw=True, timeout=20)
+        text = http_get(f["url"], ttl=900, raw=True, timeout=20, cache=False)  # 解析结果存在磁盘缓存里
         root = parse_xml(text)
         items = []
         for it in root.iter("item"):
@@ -1512,7 +2342,10 @@ def fetch_feed(f):
         raise
 
 
+@functools.lru_cache(maxsize=8192)
 def classify(title):
+    """同一标题在 72 小时窗口里会被反复分类（网页刷新、后台记录、新闻提醒），结果只和标题有关，缓存起来。
+    返回值是共享的缓存对象，调用方不要修改它"""
     mentioned = [a for a, r in ASSET_RE.items() if r.search(title)]
     drivers, effects = [], {}
     for r in NEWS_RULES:
@@ -1659,7 +2492,9 @@ for _c in TECH_TOPICS:
 TECH_CO_RE = [(t, n, re.compile(p, re.I)) for t, n, p in TECH_COMPANIES]
 
 
+@functools.lru_cache(maxsize=8192)
 def tech_classify(title):
+    """同 classify：结果只取决于标题，缓存后返回共享对象，调用方不要修改"""
     cos = [{"ticker": t, "name": n} for t, n, r in TECH_CO_RE if r.search(title)]
     topics = [c["id"] for c in TECH_TOPICS if c["re"].search(title)]
     tones = [c["tone"] for c in TECH_TOPICS if c["id"] in topics and c["tone"]]
@@ -1746,11 +2581,12 @@ def news_accuracy():
     hist = load_json("news_tilt.json", {})
     today = datetime.now(timezone.utc).date().isoformat()
     out = []
+    jobs = {sym: POOL.submit(daily_hist, sym) for sym in NEWS_SYM.values()}  # 5 个品种的 10 年行情并行取
     for a, sym in NEWS_SYM.items():
         row = {"asset": a, "sym": sym, "days": sum(1 for d in hist if a in hist[d]), "signals": 0, "n1": 0, "hit1": 0, "n5": 0, "hit5": 0,
                "base1": None, "base5": None, "since": min(hist) if hist else None}
         try:
-            h = daily_hist(sym)
+            h = jobs[sym].result(timeout=60)
         except Exception:  # noqa: BLE001 — 行情取不到就只显示记录天数
             out.append(row)
             continue
@@ -1926,12 +2762,23 @@ def autostart_status():
     return False
 
 
+_ver = {"at": 0.0, "val": None}
+
+
 def code_version():
-    """服务端代码和界面文件的最后修改时间：网页据此提示“需要重启 / 需要刷新”"""
+    """服务端代码和界面文件的最后修改时间：网页据此提示“需要重启 / 需要刷新”。每个打开的页面每 15 秒问一次，结果缓存 5 秒，
+    多个标签页同时开着时不用反复遍历目录"""
+    if _ver["val"] and time.time() - _ver["at"] < 5:
+        return _ver["val"]
+    _ver["val"], _ver["at"] = _code_version(), time.time()
+    return _ver["val"]
+
+
+def _code_version():
     def newest(paths):
         return max((os.path.getmtime(p) for p in paths if os.path.exists(p)), default=0)
     static = [os.path.join(dp, f) for dp, _, fs in os.walk(STATIC) for f in fs if f.endswith((".js", ".css", ".html")) and not f.startswith("._")]
-    return {"started": int(STARTED), "server_mtime": int(newest([os.path.join(ROOT, "server.py")])), "static_mtime": int(newest(static)),
+    return {"version": VERSION, "started": int(STARTED), "server_mtime": int(newest([os.path.join(ROOT, "server.py")])), "static_mtime": int(newest(static)),
             "port": PORT, "platform": sys.platform, "autostart": autostart_status(),
             "log": os.path.expanduser("~/Library/Logs/QuantStockGod/server.log") if sys.platform == "darwin" and autostart_status() else os.path.join(DATA, "server.log")}
 
@@ -1962,6 +2809,15 @@ def source_status():
 # ---------------------------------------------------------------- HTTP 服务
 
 class Handler(SimpleHTTPRequestHandler):
+    # HTTP/1.1 长连接：打开页面要请求几十个文件和接口，复用连接省掉每次建连的开销（所有响应都带 Content-Length）；
+    # 空闲连接 60 秒后关闭，不让浏览器保留的连接一直占着线程
+    protocol_version = "HTTP/1.1"
+    # 请求行不合法（版本错误、URL 过长、乱码）时标准库还没解析出版本，默认按 HTTP/0.9 处理，错误响应就不带状态行和响应头；
+    # 按 1.0 处理，客户端才能收到 400 / 414 / 505
+    default_request_version = "HTTP/1.0"
+    timeout = 60
+    LONG_CACHE = ("/fonts/", "/vendor/")  # 字体文件名带版本号、第三方库用 ?v= 区分版本：可以长期缓存，其他文件改了要立刻生效
+
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=STATIC, **kw)
 
@@ -1977,8 +2833,15 @@ class Handler(SimpleHTTPRequestHandler):
         "Cross-Origin-Resource-Policy": "same-origin",
     }
 
+    def send_response(self, code, message=None):
+        self._status = code  # end_headers 据此决定缓存策略：404 之类的错误不能被缓存一年
+        super().send_response(code, message)
+
     def end_headers(self):
-        self.send_header("Cache-Control", "no-cache")
+        # 请求行本身就不合法时（HTTP 版本错误、URL 过长）send_error 在解析出 path 之前就会到这里
+        path = urllib.parse.urlparse(getattr(self, "path", "") or "").path
+        long_cache = path.startswith(self.LONG_CACHE) and getattr(self, "_status", 0) in (200, 304)
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable" if long_cache else "no-cache")
         for k, v in self.SECURITY_HEADERS.items():
             self.send_header(k, v)
         super().end_headers()
@@ -1991,6 +2854,15 @@ class Handler(SimpleHTTPRequestHandler):
         if "/api/" in str(args[0] if args else ""):  # 出错时 args[0] 是 HTTPStatus 而不是请求行
             super().log_message(fmt, *args)
 
+    def content_length(self):
+        """Content-Length 不是数字（或是负数）时当作有请求体但长度未知：返回 -1，调用方据此拒绝并关连接"""
+        v = (self.headers.get("Content-Length") or "0").strip()
+        return int(v) if v.isdigit() else -1
+
+    def body_unread(self):
+        """请求带了请求体但还没被读走（被 403 / 400 拒绝、GET 带 body、请求体过大）：长连接上它会被当成下一个请求，必须关连接"""
+        return self.content_length() != 0 and not getattr(self, "_body_read", False)
+
     def send_json(self, obj, code=200):
         try:
             body = json.dumps(obj, ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -1999,41 +2871,57 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if self.body_unread():
+            self.send_header("Connection", "close")  # 同时把 close_connection 置为 True
         self.end_headers()
         self.wfile.write(body)
 
+    def forbid(self):
+        self.send_json({"error": "forbidden"}, 403)
+
     def body_json(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        if n <= 0:
+        n = self.content_length()
+        if n < 0:
+            raise ApiError("Content-Length 不正确")
+        if n == 0:
             return {}
         if n > 1_000_000:
             raise ApiError("请求体太大")
-        b = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+        raw = self.rfile.read(n)
+        self._body_read = True
+        b = json.loads(raw.decode("utf-8") or "{}")
         if not isinstance(b, dict):
             raise ApiError("请求参数格式不正确: not a JSON object")
         return b
 
     def route(self, method):
+        # 长连接上同一个 Handler 会处理多个请求：每个请求都要重置“请求体已读”，否则上一个 POST 的标记会让
+        # 这次没读的请求体被当成下一个请求执行。分块传输或 GET 带请求体时不去解析，直接在响应后关连接
+        self._body_read = False
+        if self.headers.get("Transfer-Encoding") or self.content_length() < 0 or (method != "POST" and self.content_length() > 0):
+            self.close_connection = True
         url = urllib.parse.urlparse(self.path)
         # 只接受本机页面的请求：Host 必须是本机地址（防 DNS 重绑定，静态文件也一样）
         port = self.server.server_address[1]
         local = {f"127.0.0.1:{port}", f"localhost:{port}"}
         if self.headers.get("Host") not in local:
-            return self.send_json({"error": "forbidden"}, 403)
+            return self.forbid()
         if not url.path.startswith("/api/"):
             if method == "GET":
+                if self.body_unread():
+                    self.close_connection = True
                 return super().do_GET()
             return self.send_json({"error": "not found"}, 404)
         # 跨站页面带来的 Origin 一律拒绝；所有写操作还必须带自定义请求头 X-QS-Client 并且是 JSON——
         # 跨站页面要加自定义请求头必须先经过浏览器预检，而本服务不响应预检，所以伪造不了（双重防 CSRF）
         origin = self.headers.get("Origin")
         if origin and origin.split("://", 1)[-1] not in local:
-            return self.send_json({"error": "forbidden"}, 403)
+            return self.forbid()
         if method != "GET":
             if self.headers.get("X-QS-Client") != "1":
-                return self.send_json({"error": "forbidden"}, 403)
-            if int(self.headers.get("Content-Length") or 0) > 0 and not (self.headers.get("Content-Type") or "").startswith("application/json"):
-                return self.send_json({"error": "forbidden"}, 403)
+                return self.forbid()
+            if self.content_length() != 0 and not (self.headers.get("Content-Type") or "").startswith("application/json"):
+                return self.forbid()
         q = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
         try:
             self.send_json(self.api(method, url.path, q))
@@ -2053,13 +2941,22 @@ class Handler(SimpleHTTPRequestHandler):
             return detail(q.get("sym", ""))
         if path == "/api/ticker":
             out = []
-            for s in ("^GSPC", "^HSI", "GC=F", "CL=F", "^VIX"):
+            for s, fut in [(s, POOL.submit(quote_summary, s)) for s in ("^GSPC", "^HSI", "GC=F", "CL=F", "^VIX")]:
                 try:
-                    x = quote_summary(s)
+                    x = fut.result(timeout=60)
                     out.append({"sym": s, "name": x["name"], "price": x["price"], "chg1d": x["chg1d"]})
-                except ApiError:
+                except Exception:  # noqa: BLE001 — 个别品种失败不影响其他
                     pass
             return out
+        if path == "/api/backtest":
+            return backtest(q.get("sym", ""), q.get("strategy", "ma_cross"), q.get("range", "5y"), int(num(q.get("fee"), 0, 100, 5)))
+        if path == "/api/forecast":
+            t = q.get("target")
+            return forecast(q.get("sym", ""), num(t, 0, 1e9) if t not in (None, "") else None)
+        if path == "/api/signals":
+            return signals(q.get("sym", ""))
+        if path == "/api/corr":
+            return corr(num(q.get("days"), 0, 1000, 60))
         if path == "/api/status":
             return source_status()
         if path == "/api/version":
@@ -2072,18 +2969,11 @@ class Handler(SimpleHTTPRequestHandler):
             with _store_lock:
                 items = watchlist()
                 if method == "POST":
-                    b = self.body_json()
-                    sym = (b.get("sym") or "").strip().upper()
-                    if not sym:
-                        raise ApiError("请输入代码")
-                    if not re.match(r"^[A-Z0-9^=.\-]{1,20}$", sym):
-                        raise ApiError(f"代码格式不正确: {sym[:20]}")
-                    item = {"sym": sym, "label": str(b.get("label") or "").strip()[:40], "move_pct": num(b.get("move_pct"), 0, 100),
-                            "vol_mult": num(b.get("vol_mult"), 0, 100), "rsi_alert": bool(b.get("rsi_alert", True)),
-                            "hi52_alert": bool(b.get("hi52_alert", True)), "added": int(time.time())}
+                    item = watch_item_from(self.body_json())
+                    sym = item["sym"]
                     old = next((i for i in items if i["sym"] == sym), None)
                     if old:
-                        old.update({k: item[k] for k in ("label", "move_pct", "vol_mult", "rsi_alert", "hi52_alert")})
+                        old.update({k: item[k] for k in ("label", "move_pct", "vol_mult", "rsi_alert", "hi52_alert", "ma_alert", "above", "below")})
                     else:
                         items.append(item)
                     save_json("watchlist.json", items)
@@ -2095,6 +2985,26 @@ class Handler(SimpleHTTPRequestHandler):
             return items
         if path == "/api/watchlist/refresh":
             return refresh_watchlist()
+        if path == "/api/portfolio":
+            if method in ("POST", "DELETE"):
+                with _store_lock:
+                    items = positions()
+                    if method == "POST":
+                        item = position_from(self.body_json())
+                        old = next((i for i in items if i["sym"] == item["sym"]), None)
+                        if old:
+                            old.update({k: item[k] for k in ("shares", "cost", "note")})
+                        else:
+                            items.append(item)
+                    else:
+                        items = [i for i in items if i["sym"] != q.get("sym")]
+                    save_json("positions.json", items)
+            return portfolio()
+        if path == "/api/watchlist/export":
+            with _store_lock:
+                return {"app": "quant-stock-god", "version": VERSION, "exported": int(time.time()), "watchlist": watchlist(), "managers": managers(), "positions": positions()}
+        if path == "/api/watchlist/import" and method == "POST":
+            return import_backup(self.body_json())
 
         if path == "/api/alerts":
             if method == "POST":
@@ -2123,6 +3033,29 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/alerts/run" and method == "POST":
             found = run_alerts()
             return {"found": found or [], "busy": found is None, **alert_status()}
+        if path == "/api/digest":
+            if method == "POST":
+                b = self.body_json()
+                with _store_lock:
+                    cfg = load_json("config.json", {})
+                    if "enabled" in b:
+                        cfg["digest_enabled"] = bool(b["enabled"])
+                    if "time" in b:
+                        t = str(b["time"]).strip()
+                        if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", t):
+                            raise ApiError("时间格式不正确")
+                        cfg["digest_time"] = t
+                    if b.get("lang") in ALERT_TEXT:
+                        cfg["alert_lang"] = b["lang"]
+                    save_json("config.json", cfg)
+            return digest_status()
+        if path == "/api/digest/run" and method == "POST":
+            rec = run_digest()
+            if rec is None:
+                raise ApiError("正在生成摘要，请稍候")
+            if not rec["ok"]:
+                raise ApiError(f"系统通知失败: {rec['error'] or '未知错误'}")
+            return {**digest_status(), "sent": rec}
 
         if path == "/api/insider":
             return insider_buys(q.get("ticker", ""), q.get("limit", 150))
@@ -2188,14 +3121,19 @@ class Handler(SimpleHTTPRequestHandler):
             if method == "POST":
                 b = self.body_json()
                 with _store_lock:
-                    cfg = load_json("config.json", {})
+                    sec = load_json("secrets.json", {})
                     for k in KEY_FIELDS:
                         if k in b:
                             v = str(b[k]).strip()[:200]
                             if k == "sec_email" and v and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
                                 raise ApiError("邮箱格式不正确")
-                            cfg[k] = v
-                    save_json("config.json", cfg)
+                            sec[k] = v
+                    save_json("secrets.json", sec)
+                    cfg = load_json("config.json", {})
+                    if any(k in cfg for k in KEY_FIELDS):  # 旧版本留在 config.json 里的密钥一并清掉
+                        for k in KEY_FIELDS:
+                            cfg.pop(k, None)
+                        save_json("config.json", cfg)
             cfg = config()
             return {k: bool(cfg.get(k)) for k in KEY_FIELDS}  # 只返回是否已配置，不回显内容
         raise ApiError(f"未知接口: {method} {path}")
@@ -2243,6 +3181,10 @@ def prewarm():
 
 def main():
     os.makedirs(CACHE, exist_ok=True)
+    try:
+        migrate_secrets()
+    except OSError:
+        pass
     # 无控制台运行（Windows 的 pythonw、开机自启）时 stdout / stderr 是 None，请求日志一写就报错：改写到 data/server.log
     if sys.stdout is None or sys.stderr is None:
         log = open(os.path.join(DATA, "server.log"), "a", encoding="utf-8", buffering=1)

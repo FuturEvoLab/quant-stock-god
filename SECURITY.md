@@ -10,15 +10,15 @@ Quant Stock God is a **local, single-user tool**. The server binds to `127.0.0.1
 | DNS rebinding (an attacker's domain resolves to 127.0.0.1) | Only `Host: 127.0.0.1:<port>` or `localhost:<port>` is accepted, for API calls and static files alike. |
 | Malicious headlines or feed content containing HTML/JS | All rendered data is escaped, and links from feeds must be `http(s)`. A Content-Security-Policy allows only same-origin script files, so inline scripts and `on*=` handlers cannot run even if escaping were missed. |
 | Clickjacking | `X-Frame-Options: DENY` and `frame-ancestors 'none'` |
-| Hostile or hijacked data sources | Remote responses over 25 MB are rejected, and XML containing entity declarations ("XML bombs") is refused before parsing. |
+| Hostile or hijacked data sources | Remote responses over 25 MB are rejected, before and after gzip decompression (so a small "compression bomb" cannot fill memory). XML with a DOCTYPE or entity declaration ("XML bombs") is refused before parsing; the whole prolog is scanned, so a long comment cannot push the DOCTYPE past the check. SEC accession numbers and document names must match their expected format before they are used in URLs, cache file names or page links. |
 | Malformed input | Symbols, names and numbers are validated and length-limited; NaN and infinity are rejected. Request bodies over 1 MB are rejected. |
 
 These checks are covered by `tests/test_security.py`, which starts a real server on a random port.
 
 ## Where your data lives
 
-- **API keys and the SEC contact email** are stored in `data/config.json`. The page only ever shows "configured / not configured", and keys are kept out of error messages, logs and cache keys. The file is written with owner-only permissions where the file system supports it (external drives formatted as exFAT do not).
-- **Runtime data.** `data/` also holds the watchlist, alert history and cache. It is never committed (see `.gitignore`).
+- **API keys and the SEC contact email** are stored in `data/secrets.json` (preferences such as alert settings live in `data/config.json`; versions before 1.2 kept both in `config.json` and are migrated on start). The page only ever shows "configured / not configured", and keys are kept out of error messages, logs, cache keys and the watchlist export. The file is written with owner-only permissions where the file system supports it (external drives formatted as exFAT do not). If you sync `data/` between computers, exclude `secrets.json`.
+- **Runtime data.** `data/` also holds the watchlist, portfolio positions (`positions.json`), alert history and cache. It is never committed (see `.gitignore`).
 - **Outbound requests.** The tool only contacts the public HTTPS data sources listed in the README. The symbols you look up are therefore visible to those providers. Your SEC contact email is sent only to sec.gov, as SEC requires.
 
 ## Reporting a vulnerability

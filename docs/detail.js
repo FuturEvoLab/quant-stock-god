@@ -26,6 +26,15 @@ function closeDetail() {
 }
 $("#detail").addEventListener("click", (e) => {
   if (e.target.id === "detail" || e.target.closest("[data-dt-close]")) closeDetail();
+  const act = e.target.closest("[data-dt-act]");
+  if (act && dt.sym) {  // 从详情直接跳到相关页面并把代码填好
+    const sym = dt.sym;
+    closeDetail();
+    if (act.dataset.dtAct === "quant") { switchTab("quant"); $("#ql-sym").value = sym; runQuant(); }
+    else if (act.dataset.dtAct === "watch") { switchTab("watch"); $("#w-sym").value = sym; $("#w-sym").focus(); $("#watch-form").scrollIntoView({ block: "center" }); }
+    else if (act.dataset.dtAct === "portfolio") { switchTab("portfolio"); $("#pf-sym").value = sym; $("#pf-shares").focus(); }
+    return;
+  }
   const r = e.target.closest("[data-dt-range]");
   if (r) { dt.range = +r.dataset.dtRange; renderDetail(); }
 });

@@ -22,7 +22,7 @@ function cotChart(series) {
   const line = v.map((n, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(n).toFixed(1)}`).join("");
   const IN = getVar("--in"), OUT = getVar("--out");
   const years = [];
-  series.forEach((s, i) => { if (i && s.d.slice(0, 4) !== series[i - 1].d.slice(0, 4)) years.push(`<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H - B}" class="g"/><text x="${x(i) + 3}" y="${H - 4}">${s.d.slice(0, 4)}</text>`); });
+  series.forEach((s, i) => { if (i && s.d.slice(0, 4) !== series[i - 1].d.slice(0, 4)) years.push(`<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H - B}" class="g"/><text x="${x(i) + 3}" y="${H - 4}">${esc(s.d.slice(0, 4))}</text>`); });
   return `<svg class="cot-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
     <defs><clipPath id="cpos"><rect x="0" y="0" width="${W}" height="${y(0)}"/></clipPath><clipPath id="cneg"><rect x="0" y="${y(0)}" width="${W}" height="${H}"/></clipPath></defs>
     ${years.join("")}<line x1="0" x2="${W}" y1="${y(0)}" y2="${y(0)}" class="zero"/>

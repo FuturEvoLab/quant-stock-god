@@ -446,3 +446,10 @@ h1.glitch::after { color: #00e5ff; animation: glitchB .45s steps(3) both; }
 .al-smart { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .al-row.smart { border-left-color: #ffc93c; }
 .al-row.smart .dir { color: #ffc93c; background: rgba(255, 201, 60, .12); }
+
+/* 顶栏快速查看代码 */
+.hb-lookup { display: inline-flex; margin: 0; }
+.hb-lookup input { width: 86px; padding: 2px 8px; background: transparent; border: 1px solid var(--border); color: var(--text); font: 600 11px var(--mono); letter-spacing: .06em; border-radius: 0; box-shadow: none; }
+.hb-lookup input:focus { outline: none; border-color: var(--accent); width: 130px; }
+.hb-lookup input::placeholder { color: var(--muted); }
+@media (max-width: 1240px) { .hb-lookup { display: none; } }

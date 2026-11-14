@@ -71,6 +71,24 @@ def record():
             data[f"detail|{sym}"] = s.detail(sym)
         except Exception as e:  # noqa: BLE001 — 个别品种失败就不放进演示
             print("  跳过", sym, e)
+    print("量化实验室…")
+    for sym in sorted(syms):
+        for st in s.STRATEGIES:
+            try:
+                data[f"backtest|{sym}|{st}"] = s.backtest(sym, st, "5y")
+            except Exception as e:  # noqa: BLE001
+                print("  跳过回测", sym, st, e)
+        try:
+            data[f"signals|{sym}"] = s.signals(sym)
+        except Exception as e:  # noqa: BLE001
+            print("  跳过预测检验", sym, e)
+        try:
+            data[f"forecast|{sym}"] = s.forecast(sym)
+        except Exception as e:  # noqa: BLE001
+            print("  跳过统计区间", sym, e)
+    print("相关性…")
+    for days in s.CORR_DAYS:
+        data[f"corr|{days}"] = s.corr(days)
     print("COT / EIA / 宏观…")
     data["/api/cot"] = s.cot()
     data["/api/eia"] = s.eia()
@@ -81,11 +99,13 @@ def record():
     data["/api/technews"] = s.tech_news()
     data["/api/news/accuracy"] = s.news_accuracy()
     data["/api/news/alerts"] = s.news_alert_status()
+    data["/api/digest"] = s.digest_status()
+    data["/api/portfolio"] = s.portfolio()  # 临时目录里没有持仓：录到的是空列表
     data["/api/managers"] = s.managers()
     data["/api/status"] = s.source_status()
     data["/api/config"] = {k: False for k in s.KEY_FIELDS}
     data["/api/alerts"] = {**s.alert_settings(), "last_run": None, "last_error": None, "running": False, "skipped": [], "next_run": None, "history": []}
-    data["/api/version"] = {"started": now, "server_mtime": now - 60, "static_mtime": now - 60, "port": 8767, "platform": "demo",
+    data["/api/version"] = {"version": s.VERSION, "started": now, "server_mtime": now - 60, "static_mtime": now - 60, "port": 8767, "platform": "demo",
                             "autostart": False, "log": "—"}
     return s.finite(data)
 

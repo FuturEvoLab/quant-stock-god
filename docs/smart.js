@@ -2,10 +2,11 @@
 // 内部人：每笔买入后 30 / 90 天收益（及相对 S&P 500 的超额），按人统计命中率
 // 13F：本季度 vs 上季度 → 新建仓 / 加仓 / 减仓 / 清仓，画成基金 ↔ 股票关系图
 
-const sm = { sub: "insider", ins: null, f13: null, fund: null };
+// 关系图实例放在 sm.cy 里，不能用 window.cy13：页面里有 id="cy13" 的容器，window.cy13 在画图前就是那个 div，调 destroy / resize 会报错
+const sm = { sub: "insider", ins: null, f13: null, fund: null, cy: null, layout: null };
 const ACT_TEXT = { new: "新建仓", add: "加仓", reduce: "减仓", exit: "清仓", hold: "持平" };
 const actColor = (a) => ({ new: getVar("--q-new"), add: getVar("--in"), reduce: getVar("--q-reduce"), exit: getVar("--out"), hold: getVar("--q-hold") }[a]);
-const secIndex = (cik, acc) => `https://www.sec.gov/Archives/edgar/data/${cik}/${acc.replace(/-/g, "")}/${acc}-index.htm`;
+const secIndex = (cik, acc) => esc(`https://www.sec.gov/Archives/edgar/data/${cik}/${String(acc).replace(/-/g, "")}/${acc}-index.htm`);  // 已转义，只能放进属性
 const rcell = (v) => (v == null ? `<span class="muted">—</span>` : `<span class="${updn(v)}">${pct(v, 1)}</span>`);
 const roleText = (roles) => (roles || []).map((r) => `<span class="badge">${esc(r)}</span>`).join(" ");
 
@@ -16,7 +17,7 @@ $("#sm-sub").addEventListener("click", (e) => {
   $$("#sm-sub button").forEach((x) => x.classList.toggle("on", x === b));
   $("#sm-insider").hidden = sm.sub !== "insider";
   $("#sm-13f").hidden = sm.sub !== "13f";
-  if (sm.sub === "13f") { loadManagers(); if (window.cy13) setTimeout(() => { cy13.resize(); cy13.fit(undefined, 30); }, 50); }
+  if (sm.sub === "13f") { loadManagers(); if (sm.cy) setTimeout(() => { sm.cy.resize(); sm.cy.fit(undefined, 30); }, 50); }
 });
 
 function needEmail() {
@@ -61,7 +62,7 @@ function renderInsider() {
   $("#ins-result").innerHTML = `
   <div class="kpis sm-kpis">
     ${k(esc(d.ticker), `<span class="mono">${d.price != null ? fmtPx(d.price) : "—"}</span>`, esc(d.company))}
-    ${k("扫描申报", d.filings_scanned, d.span[0] ? `${d.span[0]} ~ ${d.span[1]}` : "")}
+    ${k("扫描申报", d.filings_scanned, d.span[0] ? `${esc(d.span[0])} ~ ${esc(d.span[1])}` : "")}
     ${k("公开市场买入", d.events.length, `${d.insiders.length} 位内部人`)}
     ${k("90 天命中率", d.hit90 == null ? "—" : `<span class="${d.hit90 >= 0.5 ? "up" : "down"}">${Math.round(d.hit90 * 100)}%</span>`, `${scored} 笔已满 90 天`)}
     ${k("90 天平均收益", rcell(d.avg90), "买入日收盘价起算")}
@@ -133,7 +134,26 @@ function render13f() {
   renderFund();
 }
 
-function drawGraph13() {
+// Cytoscape 有 370 KB，只有 13F 关系图用到：第一次画图时再加载，不拖慢首屏（动态插入的同源脚本符合 CSP）
+let cyLoading = null;
+function loadCytoscape() {
+  if (window.cytoscape) return Promise.resolve();
+  cyLoading ||= new Promise((ok, fail) => {
+    const el = document.createElement("script");
+    el.src = "vendor/cytoscape.min.js?v=3.30";
+    el.onload = ok;
+    el.onerror = () => { cyLoading = null; fail(new Error("cytoscape.min.js")); };
+    document.head.appendChild(el);
+  });
+  return cyLoading;
+}
+
+async function drawGraph13() {
+  if (!window.cytoscape) {
+    $("#g13-empty").hidden = true;
+    try { await loadCytoscape(); } catch (e) { $("#sm-msg").innerHTML = `<div class="err">${esc(e.message)}</div>`; return; }
+    if (!sm.f13) return;
+  }
   const d = sm.f13, showHold = $("#g13-hold").checked;
   const nodes = new Map(), edges = [];
   for (const f of d.funds) {
@@ -164,20 +184,23 @@ function drawGraph13() {
     { selector: ".dim", style: { opacity: 0.12 } },
   ];
   $("#g13-empty").hidden = nodes.size > 0;
-  if (window.cy13) window.cy13.destroy();
-  window.cy13 = cytoscape({ container: $("#cy13"), elements: [...nodes.values(), ...edges], style, wheelSensitivity: 0.25, minZoom: 0.15, maxZoom: 3,
-    layout: { name: "cose", animate: !REDUCED, animationDuration: 900, nodeRepulsion: () => 9000, idealEdgeLength: () => 90, padding: 30, randomize: true } });
-  cy13.on("tap", "node", (e) => {
+  // 布局用 animate: "end"（先算好位置再平滑移动过去）：比逐帧跑物理模拟省 CPU，而且快速重画（连续切换“显示持平”）时销毁上一张图不会在半路的布局 tick 上报错
+  sm.layout?.stop();
+  if (sm.cy) sm.cy.destroy();
+  const cy = sm.cy = cytoscape({ container: $("#cy13"), elements: [...nodes.values(), ...edges], style, wheelSensitivity: 0.25, minZoom: 0.15, maxZoom: 3 });
+  sm.layout = cy.layout({ name: "cose", animate: REDUCED ? false : "end", animationDuration: 900, nodeRepulsion: () => 9000, idealEdgeLength: () => 90, padding: 30, randomize: true });
+  sm.layout.run();
+  cy.on("tap", "node", (e) => {
     const n = e.target;
-    cy13.elements().addClass("dim");
+    cy.elements().addClass("dim");
     n.closedNeighborhood().removeClass("dim");
     if (n.data("kind") === "fund") { sm.fund = +n.id().slice(1); renderFund(); }
     else renderStock(n.id().slice(1));
   });
-  cy13.on("tap", (e) => { if (e.target === cy13) cy13.elements().removeClass("dim"); });
+  cy.on("tap", (e) => { if (e.target === cy) cy.elements().removeClass("dim"); });
 }
 $("#g13-hold").addEventListener("change", () => sm.f13 && drawGraph13());
-$("[data-z13]").addEventListener("click", () => window.cy13?.fit(undefined, 30));
+$("[data-z13]").addEventListener("click", () => sm.cy?.fit(undefined, 30));
 
 function fundSummary() {
   return `<div class="card"><div class="card-head"><h3>基金概览</h3><span class="spacer"></span><span class="muted">点击行查看明细</span></div>
@@ -213,8 +236,8 @@ $("#f13-detail").addEventListener("click", (e) => {
   if (!tr) return;
   sm.fund = +tr.dataset.fund;
   renderFund();
-  const n = window.cy13?.$id("f" + sm.fund);
-  if (n?.length) { cy13.elements().addClass("dim"); n.closedNeighborhood().removeClass("dim"); }
+  const n = sm.cy?.$id("f" + sm.fund);
+  if (n?.length) { sm.cy.elements().addClass("dim"); n.closedNeighborhood().removeClass("dim"); }
 });
 
 TAB_LOADERS.smart = () => { renderQuick(); if (state.cfg.sec_email) $("#sm-msg").innerHTML = ""; else needEmail(); };
