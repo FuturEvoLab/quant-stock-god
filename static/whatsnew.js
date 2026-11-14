@@ -8,19 +8,19 @@ const RELEASES = [
     zh: [
       "在线演示版搬到 quantriel.futurevolab.com，不需要也不接收任何 API Key 或邮箱，设置表单已锁定。",
       "设置页说明每个 Key 只发给哪个官方网站，可以一键删除已保存的 Key；保存时检查格式。移除了从未使用的 Finnhub 栏位。",
-      "新增「免责声明 · 隐私」（侧栏链接 / 设置页）。",
+      "新增「关于本站」「免责声明」「隐私政策」「日本法规相关说明」四个单独页面（中 / 日 / 英），链接在每页底部；每页底部加风险提示：只是辅助工具，不构成投资建议，请遵守法律法规使用。",
       "安全加固：密钥文件写入时即为仅本人可读、在线版加上安全响应头、修复异常链接可能让页面无法启动的问题。",
     ],
     ja: [
       "オンラインデモを quantriel.futurevolab.com に移しました。API キーやメールアドレスは不要で受け付けもせず、設定フォームはロックされています。",
       "設定ページに各キーの送信先（公式サイトのみ）を表示し、保存したキーをワンクリックで削除できるようにしました。保存時に形式もチェックします。使われていなかった Finnhub の欄を削除しました。",
-      "「免責事項・プライバシー」を追加しました（サイドバーのリンク / 設定ページ）。",
+      "「このサイトについて」「免責事項」「プライバシーポリシー」「日本の法令に基づく表示」の 4 ページを追加しました（日本語・中国語・英語）。各ページの下部からリンクし、「補助ツールにすぎず投資助言ではない・法令を守って利用」というリスク表示も追加しました。",
       "セキュリティ強化：キーのファイルは作成時から本人のみ読み取り可に、オンライン版にセキュリティヘッダーを追加、不正なリンクで画面が起動しなくなる問題を修正しました。",
     ],
     en: [
       "The online demo moved to quantriel.futurevolab.com. It needs and accepts no API keys or email, and its Settings form is locked.",
       "Settings now shows the one official site each key is sent to, lets you delete a saved key in one click, and checks key formats on save. The unused Finnhub field is gone.",
-      "New Disclaimer · Privacy section (sidebar link and Settings page).",
+      "New About, Disclaimer, Privacy Policy and Japanese legal notice pages (in English, Japanese and Chinese), linked at the bottom of every page, plus a risk warning there: the tool is only an aid, not investment advice, and must be used within the law.",
       "Security hardening: the key file is private from the moment it is written, the online demo sends security headers, and a malformed link can no longer stop the page from starting.",
     ],
   },

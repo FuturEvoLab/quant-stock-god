@@ -415,11 +415,6 @@ $("#cfg-form").addEventListener("click", async (e) => {
     toast("已删除");
   } catch (err) { toast(err.message, 4000); }
 });
-$("#legal-open").addEventListener("click", (e) => {
-  e.preventDefault();
-  switchTab("settings");
-  setTimeout(() => $("#legal").scrollIntoView({ behavior: "smooth", block: "start" }), 60);
-});
 TAB_LOADERS.settings = () => loadConfig();
 
 // ---------------------------------------------------------------- HUD 状态栏

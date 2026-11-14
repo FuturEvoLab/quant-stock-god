@@ -584,3 +584,19 @@ class WhatsNew(unittest.TestCase):
         self.assertEqual([v for v, _ in versions], sorted((v for v, _ in versions), key=key, reverse=True), "版本要从新到旧排列")
         for lang in ("zh", "ja", "en"):  # 每个版本三种语言都要有内容
             self.assertEqual(len(re.findall(rf"^    {lang}: \[", src, re.M)), len(versions), lang)
+
+
+class LegalPages(unittest.TestCase):
+    """页面底部链接的说明页面都存在，每页都有日 / 中 / 英三段，并且只引用本站自己的脚本和样式（符合 CSP）"""
+    def test_pages(self):
+        import re
+        html = open(os.path.join(s.STATIC, "index.html"), encoding="utf-8").read()
+        foot = html[html.index('<footer class="site-foot">'):html.index("</footer>")]
+        pages = re.findall(r'href="([a-z-]+\.html)"', foot)
+        self.assertEqual(sorted(pages), ["about.html", "disclaimer.html", "legal.html", "privacy.html"])
+        for p in pages:
+            t = open(os.path.join(s.STATIC, p), encoding="utf-8").read()
+            for lang in ("ja", "zh", "en"):
+                self.assertIn(f'data-lang="{lang}"', t, p)
+            self.assertNotIn("<script>", t, p)
+            self.assertFalse(re.search(r'<(?:script|link)[^>]+(?:src|href)="https?://', t), p)

@@ -85,6 +85,7 @@ There are 71 offline tests (no network, no notifications). GitHub Actions runs t
 
 ## Disclaimer and privacy
 
+- **Risk warning:** Quantriel is only an aid, not investment advice. Investing involves risk; make your own decisions and use it in compliance with applicable laws and regulations.
 - Quantriel is for personal learning and research. Nothing in it is investment advice, an offer or a solicitation. Scores, news impact, backtests and price ranges are statistical descriptions of past data, not forecasts. Data from third-party sources may be delayed, wrong or missing. Investing involves risk, and the author is not liable for any loss arising from use of this tool. The project is not affiliated with any data provider.
 - **Full version:** no account, no analytics, no tracking. Everything stays in `data/` on your computer. The app contacts only the listed data sites.
 - **Online demo:** static pages hosted by Cloudflare, no cookies, no input accepted. Preferences stay in your browser's local storage. Cloudflare may keep standard access logs for security.

@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="gold.css?v=1">
 <link rel="stylesheet" href="quant.css?v=10">
 <script src="boot.js?v=1"></script>
-<script src="demo.js" data-generated="1794643324"></script>
+<script src="demo.js" data-generated="1794644022"></script>
 </head>
 <body>
 <div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -105,7 +105,7 @@
         <svg id="sys-spark" class="spark" viewBox="0 0 100 22" preserveAspectRatio="none" aria-hidden="true"><path class="area"/><path class="line"/><circle r="1.8"/></svg>
       </div>
       <div class="lang-switch" translate="no"><button type="button" data-lang="en">EN</button><button type="button" data-lang="ja">日本語</button><button type="button" data-lang="zh">中文</button></div>
-      <a id="legal-open" class="legal-link" href="#legal">免责声明 · 隐私</a>
+      <a class="legal-link" href="disclaimer.html">免责声明 · 隐私</a>
       <button id="wn-open" class="ghost theme-btn wn-open" type="button" title="查看每个版本更新了什么">
         <svg viewBox="0 0 24 24"><path d="M3 10v4h3l5 4V6L6 10z"/><path d="M15 9a4 4 0 010 6M18 6a8 8 0 010 12"/></svg>
         <span>更新公告</span><span id="wn-badge" class="badge wn-new" translate="no" hidden>NEW</span>
@@ -554,24 +554,19 @@
             </table>
             <p class="muted">全部为免费公开数据，可能延迟、缺失或被限流。仅供个人研究，不构成投资建议。</p>
           </div>
-          <div class="card legal" id="legal">
-            <h3>免责声明</h3>
-            <ul class="legal-list">
-              <li>本工具仅供个人学习和研究。所有内容都不构成投资建议、要约或招揽，也不是对任何证券或商品的推荐。</li>
-              <li>数据来自第三方免费公开来源（Yahoo Finance、SEC、CFTC、FRED、EIA、新闻 RSS 等），可能延迟、出错或中断；作者不保证其准确、完整或及时。</li>
-              <li>页面里的评分、新闻影响、回测和价格区间都是基于历史数据和固定规则的统计描述，不是预测；过去的表现不代表未来。</li>
-              <li>投资有风险，请自行判断并自负责任。因使用本工具造成的任何损失，作者不承担责任。</li>
-              <li>本项目与上述数据提供方没有任何关联，各商标归其所有者。使用各数据源时须遵守其自身的条款。软件按 AGPL-3.0 许可“按原样”提供，不附带任何担保。</li>
-            </ul>
-            <h3>隐私说明</h3>
-            <ul class="legal-list">
-              <li>完整版（在你电脑上运行）：没有账户，没有统计或追踪。设置、自选和持仓只保存在你电脑的 data/ 目录里。程序只访问上面列出的数据网站；邮箱和 Key 只发给各自对应的官方网站。</li>
-              <li>在线演示版：纯静态页面，由 Cloudflare 托管。不使用 Cookie，不收集个人信息，也不接收任何输入；语言、配色等偏好只保存在你浏览器的本地存储里。托管方 Cloudflare 可能出于安全和运维记录标准访问日志（如 IP 地址）。</li>
-            </ul>
+          <div class="card">
+            <h3>免责声明 · 隐私</h3>
+            <p class="muted">本工具只是辅助工具，不构成投资建议；投资有风险，请遵守法律法规使用。完整条款见下面的单独页面。</p>
+            <div class="legal-links"><a href="about.html">关于本站</a><a href="disclaimer.html">免责声明</a><a href="privacy.html">隐私政策</a><a href="legal.html">日本法规相关说明</a></div>
           </div>
         </div>
       </div>
     </section>
+    <footer class="site-foot">
+      <nav><a href="about.html">关于本站</a><a href="disclaimer.html">免责声明</a><a href="privacy.html">隐私政策</a><a href="legal.html">日本法规相关说明</a><a href="https://github.com/FuturEvoLab/quantriel" target="_blank" rel="noopener" translate="no">GitHub ↗</a></nav>
+      <p class="risk-line"><b>风险提示</b><span>本工具只是辅助工具，不构成投资建议；投资有风险，请独立判断，并遵守法律法规使用。</span></p>
+      <p><span>数据可能延迟或有误</span> · <span translate="no">© 2026 FuturEvoLab</span></p>
+    </footer>
   </main>
 </div>
 
