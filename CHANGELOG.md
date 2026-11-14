@@ -2,10 +2,15 @@
 
 版本号显示在「设置 → 服务」里；`/api/version` 也会返回。
 
+## 1.5.3 — 2026-11-14
+
+- 新增**更新公告**：侧栏「更新公告」按钮和设置页卡片列出每个版本的发布时间（日本时间）和主要更新内容（三种语言）；版本更新后会自动弹出一次本次更新内容，有未读更新时按钮显示 NEW。第一次打开的新用户不会弹出。
+- 版本记录写在 `static/whatsnew.js`，测试会检查最新一条与 `server.py` 的版本号一致。
+
 ## 1.5.2 — 2026-11-14
 
 - 英文名改为 **Quantriel**（中文“量化股神”、日文「クオンツ株神」不变）；GitHub 仓库改名为 `FuturEvoLab/quantriel`，旧地址会自动跳转。
-- 在线演示改到 https://quantriel.futurevolab.com/ 。
+- 在线演示改到 https://futurevolab.github.io/quantriel/ （旧地址 `/quant-stock-god/` 已失效）；自定义域名 quantriel.futurevolab.com 在 DNS 设好之后启用，演示生成脚本只在域名能解析时才写入 `docs/CNAME`。
 - 启动脚本改名为 `Start-Quantriel.command` / `Start-Quantriel.bat`。开机自启的内部标签（`com.quantstockgod.server`）、日志目录和 Windows 启动项名称保持不变，已经设置好的开机自启不用重装。
 - 导出的备份文件名改为 `quantriel-backup-日期.json`；旧备份仍可导入。
 

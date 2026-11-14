@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="gold.css?v=1">
 <link rel="stylesheet" href="quant.css?v=10">
 <script src="boot.js?v=1"></script>
-<script src="demo.js" data-generated="1794638361"></script>
+<script src="demo.js" data-generated="1794639213"></script>
 </head>
 <body>
 <div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -104,6 +104,10 @@
         <svg id="sys-spark" class="spark" viewBox="0 0 100 22" preserveAspectRatio="none" aria-hidden="true"><path class="area"/><path class="line"/><circle r="1.8"/></svg>
       </div>
       <div class="lang-switch" translate="no"><button type="button" data-lang="en">EN</button><button type="button" data-lang="ja">日本語</button><button type="button" data-lang="zh">中文</button></div>
+      <button id="wn-open" class="ghost theme-btn wn-open" type="button" title="查看每个版本更新了什么">
+        <svg viewBox="0 0 24 24"><path d="M3 10v4h3l5 4V6L6 10z"/><path d="M15 9a4 4 0 010 6M18 6a8 8 0 010 12"/></svg>
+        <span>更新公告</span><span id="wn-badge" class="badge wn-new" translate="no" hidden>NEW</span>
+      </button>
       <button id="theme-toggle" class="ghost theme-btn" type="button" title="切换配色：蓝色 HUD → 黑金 → 浅色">
         <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
         <span>切换配色</span>
@@ -515,6 +519,11 @@
           <div><button class="primary">保存设置</button></div>
         </form>
         <div class="stack">
+          <div class="card" id="wn-card">
+            <div class="card-head"><h3>更新公告</h3><span class="spacer"></span><span class="muted">时间为日本时间（JST）</span></div>
+            <div id="wn-list" class="wn-list"></div>
+            <p class="muted wn-more">完整的技术细节见 <a href="https://github.com/FuturEvoLab/quantriel/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md ↗</a></p>
+          </div>
           <div class="card">
             <h3>服务</h3>
             <table class="plain" id="svc-info"></table>
@@ -548,6 +557,13 @@
 </div>
 
 <div id="toast" class="toast"></div>
+<div id="wn-modal" class="wn-modal" hidden>
+  <div class="card wn-box" role="dialog" aria-modal="true" aria-labelledby="wn-title">
+    <div class="card-head"><h3 id="wn-title">更新公告</h3><span class="spacer"></span><span class="muted">时间为日本时间（JST）</span></div>
+    <div id="wn-body" class="wn-list"></div>
+    <div class="form-row"><button id="wn-all" type="button" class="ghost small">查看全部版本</button><span class="spacer"></span><button id="wn-close" type="button" class="primary small">知道了</button></div>
+  </div>
+</div>
 <div id="detail" class="dt-overlay" hidden role="dialog" aria-modal="true">
   <div class="dt-panel card">
     <div class="dt-head"><div id="dt-title" class="dt-title"></div>
@@ -587,5 +603,6 @@
 <script src="south.js?v=3"></script>
 <script src="news.js?v=1"></script>
 <script src="tech.js?v=1"></script>
+<script src="whatsnew.js?v=1"></script>
 </body>
 </html>

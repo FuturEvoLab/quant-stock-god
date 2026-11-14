@@ -571,3 +571,16 @@ class NewsAccuracy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhatsNew(unittest.TestCase):
+    def test_latest_release_matches_server_version(self):
+        import re
+        src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "whatsnew.js"), encoding="utf-8").read()
+        versions = re.findall(r'v: "([0-9.]+)", date: "(\d{4}-\d{2}-\d{2})"', src)
+        self.assertTrue(versions, "whatsnew.js 里没有版本记录")
+        self.assertEqual(versions[0][0], s.VERSION, "更新公告最新一条的版本号要和 server.py 的 VERSION 一致")
+        key = lambda v: tuple(int(x) for x in v.split("."))
+        self.assertEqual([v for v, _ in versions], sorted((v for v, _ in versions), key=key, reverse=True), "版本要从新到旧排列")
+        for lang in ("zh", "ja", "en"):  # 每个版本三种语言都要有内容
+            self.assertEqual(len(re.findall(rf"^    {lang}: \[", src, re.M)), len(versions), lang)
