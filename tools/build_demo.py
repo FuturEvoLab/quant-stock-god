@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import sys
 import tempfile
 import time
@@ -24,6 +25,7 @@ for k in ("FRED_API_KEY", "EIA_API_KEY", "FINNHUB_API_KEY", "SEC_EMAIL"):  # 演
 sys.path.insert(0, ROOT)
 import server as s  # noqa: E402
 
+DOMAIN = "quantriel.futurevolab.com"
 TICKER = ("^GSPC", "^HSI", "GC=F", "CL=F", "^VIX")  # 和 /api/ticker 一致
 
 
@@ -47,7 +49,13 @@ def main(out):
     html = html.replace("<title>量化股神</title>", "<title>量化股神 · Quantriel — Demo</title>")
     open(os.path.join(out, "index.html"), "w", encoding="utf-8").write(html)
     open(os.path.join(out, ".nojekyll"), "w").close()  # 让 GitHub Pages 原样发布，不经过 Jekyll
-    open(os.path.join(out, "CNAME"), "w").write("quantriel.futurevolab.com\n")  # GitHub Pages 自定义域名；docs/ 每次重建都会清空，所以在这里写
+    # GitHub Pages 自定义域名（docs/ 每次重建都会清空，所以在这里写）。只有域名已经能解析时才写：
+    # 分支发布模式下 Pages 会直接采用 CNAME 文件，DNS 还没设好就写，演示站会跳到一个打不开的地址
+    try:
+        socket.gethostbyname(DOMAIN)
+        open(os.path.join(out, "CNAME"), "w").write(DOMAIN + "\n")
+    except OSError:
+        print(f"注意：{DOMAIN} 还不能解析，先不写 CNAME（演示站继续用 futurevolab.github.io/quantriel/）")
     json.dump(data, open(os.path.join(out, "demo-data.json"), "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     size = os.path.getsize(os.path.join(out, "demo-data.json")) // 1024
     print(f"演示版已生成：{out}（{len(data)} 份接口数据，demo-data.json {size} KB）")
