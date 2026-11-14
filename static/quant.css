@@ -323,7 +323,7 @@ svg text { stroke: none; }
   100% { text-shadow: inherit; transform: none; }
 }
 
-/* 英文界面：品牌名 “Quant Stock God” 比中文长，Orbitron 宽字体在侧栏里会被截断；英文时改用同为 HUD 风格的 Rajdhani */
+/* 英文界面：品牌名 “Quantriel” 比中文长，Orbitron 宽字体在侧栏里会被截断；英文时改用同为 HUD 风格的 Rajdhani */
 :root:lang(en) .brand .brand-name { font-family: "Rajdhani", var(--font); font-size: 14px; font-weight: 700; letter-spacing: .02em; }
 :root:lang(en) .brand .brand-sub { font-size: 9.5px; letter-spacing: .06em; }
 

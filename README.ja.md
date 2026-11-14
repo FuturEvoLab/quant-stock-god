@@ -1,8 +1,8 @@
-# クオンツ株神（Quant Stock God）— ローカルで動く米国株・香港株・商品マーケット監視ツール
+# クオンツ株神（Quantriel）— ローカルで動く米国株・香港株・商品マーケット監視ツール
 
 [English](README.md) · 日本語 · [中文](README.zh.md) · ライセンス：[AGPL-3.0](LICENSE) · [セキュリティ](SECURITY.md) · [サードパーティ](THIRD_PARTY_NOTICES.md) · 作者：[@FuturEvoLab](https://x.com/FuturEvoLab)
 
-**オンラインデモ：** https://futurevolab.github.io/quant-stock-god/?lang=ja （インストール不要。記録済みのデータスナップショットを閲覧できます）
+**オンラインデモ：** https://quantriel.futurevolab.com/?lang=ja （インストール不要。記録済みのデータスナップショットを閲覧できます）
 
 米国株・香港株・株価指数・金利・ドル・金・原油などの商品先物を 1 つの画面で監視し、ウォッチリストの急変、インサイダーの買い、ヘッジファンドの建玉、エネルギー在庫、ニュースの材料までを、すべて自分のパソコンの中だけで分析するツールです。
 
@@ -54,8 +54,8 @@ Python 3.9 以上が必要です（Windows ではインストール時に「Add 
 
 | OS | 手動で起動 | 自動起動を設定 | 自動起動を解除 |
 |---|---|---|---|
-| macOS | `Start-QuantStockGod.command` | `Enable-Autostart-macOS.command` | `Disable-Autostart-macOS.command` |
-| Windows | `Start-QuantStockGod.bat` | `Enable-Autostart-Windows.bat` | `Disable-Autostart-Windows.bat` |
+| macOS | `Start-Quantriel.command` | `Enable-Autostart-macOS.command` | `Disable-Autostart-macOS.command` |
+| Windows | `Start-Quantriel.bat` | `Enable-Autostart-Windows.bat` | `Disable-Autostart-Windows.bat` |
 
 ダブルクリックするとブラウザで <http://127.0.0.1:8767> が開きます。コマンドラインからは `python3 server.py`（ポートは `PORT=8770 python3 server.py` のように変更可能）。
 

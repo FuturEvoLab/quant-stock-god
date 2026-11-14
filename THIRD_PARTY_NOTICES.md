@@ -1,6 +1,6 @@
 # Third-party notices
 
-Quant Stock God itself is licensed under the GNU AGPL-3.0 (see [LICENSE](LICENSE)). It bundles the following third-party components, which keep their own licenses.
+Quantriel itself is licensed under the GNU AGPL-3.0 (see [LICENSE](LICENSE)). It bundles the following third-party components, which keep their own licenses.
 
 ## Cytoscape.js 3.30.2 — MIT License
 

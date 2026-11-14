@@ -27,13 +27,13 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8767"))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
 DATA = os.path.join(ROOT, "data")
 CACHE = os.path.join(DATA, "cache")
-UA = "Mozilla/5.0 (quant-stock-god local tool)"
+UA = "Mozilla/5.0 (quantriel local tool)"
 
 POOL = ThreadPoolExecutor(max_workers=12)
 STARTED = time.time()
@@ -1249,8 +1249,8 @@ ALERT_TEXT = {
     "ja": {"title": "クオンツ株神 · 急変アラート", "move": "価格急変", "volume": "出来高急増", "vs": "（20日平均比）",
            "rsi_hi": "RSI が買われ過ぎ圏へ", "rsi_lo": "RSI が売られ過ぎ圏へ", "hi52": "52 週高値を更新", "lo52": "52 週安値を更新", "more": "他に {n} 件の急変。クオンツ株神で確認してください",
            "above": "目標価格を上抜け", "below": "目標価格を下抜け", "golden": "ゴールデンクロス（20 日線が 50 日線を上抜け）", "death": "デッドクロス（20 日線が 50 日線を下抜け）", "test": "テスト通知：バックグラウンド通知は正常です"},
-    "en": {"title": "Quant Stock God · Alert", "move": "Price move", "volume": "Volume spike", "vs": "vs 20d avg",
-           "rsi_hi": "RSI entered overbought", "rsi_lo": "RSI entered oversold", "hi52": "New 52-week high", "lo52": "New 52-week low", "more": "{n} more alerts — open Quant Stock God",
+    "en": {"title": "Quantriel · Alert", "move": "Price move", "volume": "Volume spike", "vs": "vs 20d avg",
+           "rsi_hi": "RSI entered overbought", "rsi_lo": "RSI entered oversold", "hi52": "New 52-week high", "lo52": "New 52-week low", "more": "{n} more alerts — open Quantriel",
            "above": "Crossed above target", "below": "Crossed below target", "golden": "Golden cross (20d over 50d)", "death": "Death cross (20d under 50d)", "test": "Test notification: background alerts are working"},
 }
 _alert = {"last_run": None, "last_error": None, "next_run": 0, "running": False, "skipped": []}
@@ -1360,7 +1360,7 @@ def run_alerts():
 DIGEST_TEXT = {
     "zh": {"title": "量化股神 · 每日摘要", "fng": "恐惧贪婪", "best": "自选最强", "worst": "自选最弱", "zones": ["极度恐慌", "恐慌", "中性", "贪婪", "极度贪婪"]},
     "ja": {"title": "クオンツ株神 · デイリーサマリー", "fng": "恐怖と強欲", "best": "ウォッチ最強", "worst": "ウォッチ最弱", "zones": ["極度の恐怖", "恐怖", "中立", "強欲", "極度の強欲"]},
-    "en": {"title": "Quant Stock God · Daily digest", "fng": "F&G", "best": "Watch best", "worst": "Watch worst", "zones": ["Extreme fear", "Fear", "Neutral", "Greed", "Extreme greed"]},
+    "en": {"title": "Quantriel · Daily digest", "fng": "F&G", "best": "Watch best", "worst": "Watch worst", "zones": ["Extreme fear", "Fear", "Neutral", "Greed", "Extreme greed"]},
 }
 DIGEST_SYMS = (("^GSPC", "SPX"), ("^IXIC", "IXIC"), ("^HSI", "HSI"), ("^VIX", "VIX"), ("GC=F", "GOLD"), ("CL=F", "WTI"))
 _digest = {"last_error": None, "retry_at": 0.0}
@@ -1503,7 +1503,7 @@ def sec_ua():
     email = config().get("sec_email", "").strip()
     if not email:
         raise ApiError("SEC EDGAR 需要联系邮箱：请在“设置”页填写（只用于 SEC 要求的 User-Agent，只保存在本机）")
-    return f"QuantStockGod/{VERSION} personal-research {email}"
+    return f"Quantriel/{VERSION} personal-research {email}"
 
 
 def sec_get(url, raw=False, ttl=3600):
@@ -2648,7 +2648,7 @@ NEWS_ALERT_TEXT = {
            "assets": {"oil": "原油", "natgas": "天然气", "gold": "黄金", "silver": "白银", "copper": "铜"}},
     "ja": {"title": "クオンツ株神 · 重要ニュース", "src": "媒体", "more": "他に重要ニュース {n} 件。クオンツ株神で確認してください",
            "assets": {"oil": "原油", "natgas": "天然ガス", "gold": "金", "silver": "銀", "copper": "銅"}},
-    "en": {"title": "Quant Stock God · Major news", "src": "outlets", "more": "{n} more major news items — open Quant Stock God",
+    "en": {"title": "Quantriel · Major news", "src": "outlets", "more": "{n} more major news items — open Quantriel",
            "assets": {"oil": "Crude", "natgas": "Natgas", "gold": "Gold", "silver": "Silver", "copper": "Copper"}},
 }
 # 只有强影响因素会触发提醒，所以只需要这几条的日文 / 英文名称
@@ -2754,6 +2754,8 @@ def news_alert_status():
 
 # ---------------------------------------------------------------- 服务信息 / 重启（改了代码后在网页上一键生效）
 
+# 英文名已改为 Quantriel，但开机自启的标签 com.quantstockgod.server、日志目录和 Windows 快捷方式名保持旧名：
+# 已经安装好的自启服务靠这些名字识别，改了就会对不上
 def autostart_status():
     if sys.platform == "darwin":
         return os.path.exists(os.path.expanduser("~/Library/LaunchAgents/com.quantstockgod.server.plist"))
@@ -3002,7 +3004,7 @@ class Handler(SimpleHTTPRequestHandler):
             return portfolio()
         if path == "/api/watchlist/export":
             with _store_lock:
-                return {"app": "quant-stock-god", "version": VERSION, "exported": int(time.time()), "watchlist": watchlist(), "managers": managers(), "positions": positions()}
+                return {"app": "quantriel", "version": VERSION, "exported": int(time.time()), "watchlist": watchlist(), "managers": managers(), "positions": positions()}
         if path == "/api/watchlist/import" and method == "POST":
             return import_backup(self.body_json())
 

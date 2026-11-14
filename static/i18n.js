@@ -7,7 +7,7 @@ const LANGS = { en: "EN", ja: "日本語", zh: "中文" }; // 默认英语，其
 // [中文, 日本語, English]
 const ENTRIES = [
   // ---- 导航 / 通用
-  ["量化股神", "クオンツ株神", "Quant Stock God"],
+  ["量化股神", "クオンツ株神", "Quantriel"],
   ["市场总览", "マーケット概況", "Market Overview"],
   ["自选监控", "ウォッチリスト", "Watchlist"],
   ["聪明钱", "スマートマネー", "Smart Money"],

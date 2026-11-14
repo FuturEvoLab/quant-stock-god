@@ -1,5 +1,5 @@
 @echo off
-rem Quant Stock God — double-click to start on Windows.
+rem Quantriel — double-click to start on Windows.
 rem If it is already running, just open the browser; otherwise run it in this window. Closing the window stops it.
 chcp 65001 >nul
 cd /d "%~dp0"
@@ -9,7 +9,7 @@ set "URL=http://127.0.0.1:%PORT%"
 
 powershell -NoProfile -Command "try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 '%URL%/api/status'; if ($r.Content -match 'yahoo') { exit 0 } else { exit 1 } } catch { exit 1 }"
 if %errorlevel%==0 (
-  echo Quant Stock God is already running: %URL%
+  echo Quantriel is already running: %URL%
   start "" "%URL%"
   exit /b 0
 )
@@ -23,7 +23,7 @@ if not defined PY (
   exit /b 1
 )
 
-echo Starting Quant Stock God: %URL% (close this window to stop it)
+echo Starting Quantriel: %URL% (close this window to stop it)
 start "" /b powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep -Seconds 2; Start-Process '%URL%'"
 %PY% server.py
 pause

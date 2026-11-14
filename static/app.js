@@ -257,7 +257,7 @@ $("#w-export").addEventListener("click", async () => {
     const d = await api("/api/watchlist/export");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: "application/json" }));
-    a.download = `quant-stock-god-backup-${fmtTime(Date.now() / 1000, false)}.json`;
+    a.download = `quantriel-backup-${fmtTime(Date.now() / 1000, false)}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   } catch (e) { toast(e.message, 4000); }

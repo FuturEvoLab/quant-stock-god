@@ -1,8 +1,8 @@
-# 量化股神 · Quant Stock God
+# 量化股神 · Quantriel
 
 [English](README.md) · [日本語](README.ja.md) · 中文 · 许可证：[AGPL-3.0](LICENSE) · [安全说明](SECURITY.md) · [第三方组件](THIRD_PARTY_NOTICES.md) · 作者：[@FuturEvoLab](https://x.com/FuturEvoLab)
 
-**在线演示：** https://futurevolab.github.io/quant-stock-god/?lang=zh （无需安装，浏览录制好的数据快照）
+**在线演示：** https://quantriel.futurevolab.com/?lang=zh （无需安装，浏览录制好的数据快照）
 
 本地运行的美股 / 港股 / 黄金原油大宗商品监控分析工具。Python 标准库服务端 + 原生 JS 前端（无需 pip、无需构建），HUD 深色主题，English / 日本語 / 中文 三语（默认英语）。界面风格与同一作者的「区块侦探 / Block Detective」一致。
 
@@ -22,8 +22,8 @@
 
 | 系统 | 手动启动（双击） | 开机自启（双击一次即可） | 取消开机自启 |
 |---|---|---|---|
-| macOS | `Start-QuantStockGod.command` | `Enable-Autostart-macOS.command` | `Disable-Autostart-macOS.command` |
-| Windows | `Start-QuantStockGod.bat` | `Enable-Autostart-Windows.bat` | `Disable-Autostart-Windows.bat` |
+| macOS | `Start-Quantriel.command` | `Enable-Autostart-macOS.command` | `Disable-Autostart-macOS.command` |
+| Windows | `Start-Quantriel.bat` | `Enable-Autostart-Windows.bat` | `Disable-Autostart-Windows.bat` |
 
 - 打开 <http://127.0.0.1:8767>（建议加入浏览器书签）。设置了开机自启后，服务一直在后台运行，书签就是“一键打开”，自选异动和重大新闻提醒也一直有效。
 - 手动启动脚本会先检查服务是否已在运行：在运行就直接打开浏览器，否则在当前窗口启动（关闭窗口即停止）。
@@ -157,7 +157,7 @@ demo/                     演示版专用脚本和样式
 docs/                     生成好的在线演示
 assets/                   README 截图
 data/                     本地数据（config.json、watchlist.json、managers.json、alerts.json、cache/）
-Start-QuantStockGod.command  双击启动（Windows 用 .bat）
+Start-Quantriel.command  双击启动（Windows 用 .bat）
 ```
 
 `data/config.json` 里有你的邮箱和 API Key，不要分享或上传这个文件夹（`.gitignore` 已排除）。

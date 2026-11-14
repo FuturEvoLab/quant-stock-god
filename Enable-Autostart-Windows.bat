@@ -1,5 +1,5 @@
 @echo off
-rem Quant Stock God — start automatically at Windows login, in the background with no window (log: data\server.log).
+rem Quantriel — start automatically at Windows login, in the background with no window (log: data\server.log).
 rem To undo, double-click Disable-Autostart-Windows.bat.
 chcp 65001 >nul
 cd /d "%~dp0"

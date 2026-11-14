@@ -2,6 +2,13 @@
 
 版本号显示在「设置 → 服务」里；`/api/version` 也会返回。
 
+## 1.5.2 — 2026-11-14
+
+- 英文名改为 **Quantriel**（中文“量化股神”、日文「クオンツ株神」不变）；GitHub 仓库改名为 `FuturEvoLab/quantriel`，旧地址会自动跳转。
+- 在线演示改到 https://quantriel.futurevolab.com/ 。
+- 启动脚本改名为 `Start-Quantriel.command` / `Start-Quantriel.bat`。开机自启的内部标签（`com.quantstockgod.server`）、日志目录和 Windows 启动项名称保持不变，已经设置好的开机自启不用重装。
+- 导出的备份文件名改为 `quantriel-backup-日期.json`；旧备份仍可导入。
+
 ## 1.5.1 — 2026-11-14
 
 ### 新功能（合并主线）

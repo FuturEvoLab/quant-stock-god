@@ -3,7 +3,7 @@
 // 链接参数：?lang=en|ja|zh 指定界面语言，?tab=market|watch|portfolio|quant|smart|cot|news|settings 打开某个页面，
 //          ?view=tech 新闻页切到 AI·科技股，?skin=gold|light 换配色，?clean=1 不显示演示提示条（截图用）
 (function () {
-  const REPO = "https://github.com/FuturEvoLab/quant-stock-god";
+  const REPO = "https://github.com/FuturEvoLab/quantriel";
   // 页面里的时间按“录制快照的那一刻”走（加上打开页面后经过的时间），否则快照过一天后，
   // 新闻页会提示“数据较旧”、各处显示“x 天前”。快照日期在底部提示条里标明。
   const generated = +document.currentScript.dataset.generated || 0;

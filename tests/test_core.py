@@ -336,11 +336,11 @@ class Digest(unittest.TestCase):
               "commods": [{"sym": "GC=F", "price": 2000, "chg1d": -0.46}], "fng": {"now": 62}}
         rows = [{"sym": "NVDA", "chg1d": 4.21}, {"sym": "AAPL", "chg1d": -1.1}, {"sym": "BAD", "error": "x"}]
         title, text = s.digest_text(mk, rows, "en")
-        self.assertEqual(title, "Quant Stock God · Daily digest")
+        self.assertEqual(title, "Quantriel · Daily digest")
         self.assertEqual(text, "SPX +0.8% · VIX 15.2 · GOLD -0.5% · F&G 62 Greed · Watch best NVDA +4.2% · Watch worst AAPL -1.1%")
         title, text = s.digest_text({"indices": [], "commods": []}, [{"sym": "X", "chg1d": 1}], "zh")
         self.assertEqual(text, "自选最强 X +1.0%")  # 只有一个品种时不重复显示最弱
-        self.assertEqual(s.digest_text({}, [], "xx")[0], "Quant Stock God · Daily digest")  # 未知语言用英文
+        self.assertEqual(s.digest_text({}, [], "xx")[0], "Quantriel · Daily digest")  # 未知语言用英文
 
     def test_tick_runs_once_a_day_after_the_set_time(self):
         import tempfile

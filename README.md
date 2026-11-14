@@ -1,10 +1,10 @@
-# Quant Stock God (量化股神) — a local monitor for US / HK stocks and commodities
+# Quantriel (量化股神) — a local monitor for US / HK stocks and commodities
 
 English · [日本語](README.ja.md) · [中文](README.zh.md) · License: [AGPL-3.0](LICENSE) · [Security](SECURITY.md) · [Third-party notices](THIRD_PARTY_NOTICES.md) · Author: [@FuturEvoLab](https://x.com/FuturEvoLab)
 
-[![tests](https://github.com/FuturEvoLab/quant-stock-god/actions/workflows/tests.yml/badge.svg)](https://github.com/FuturEvoLab/quant-stock-god/actions/workflows/tests.yml)
+[![tests](https://github.com/FuturEvoLab/quantriel/actions/workflows/tests.yml/badge.svg)](https://github.com/FuturEvoLab/quantriel/actions/workflows/tests.yml)
 
-**Online demo:** https://futurevolab.github.io/quant-stock-god/?lang=en (no install; browse a recorded data snapshot)
+**Online demo:** https://quantriel.futurevolab.com/?lang=en (no install; browse a recorded data snapshot)
 
 Watch US and Hong Kong stocks, indices, rates, the dollar, gold, oil and other commodity futures on one screen. The tool also tracks watchlist alerts, insider buying, hedge-fund positioning, energy inventories and news drivers, and everything runs on your own computer.
 
@@ -45,8 +45,8 @@ Python 3.9+ is required (on Windows, tick "Add Python to PATH" when installing).
 
 | OS | Start manually | Enable autostart | Disable autostart |
 |---|---|---|---|
-| macOS | `Start-QuantStockGod.command` | `Enable-Autostart-macOS.command` | `Disable-Autostart-macOS.command` |
-| Windows | `Start-QuantStockGod.bat` | `Enable-Autostart-Windows.bat` | `Disable-Autostart-Windows.bat` |
+| macOS | `Start-Quantriel.command` | `Enable-Autostart-macOS.command` | `Disable-Autostart-macOS.command` |
+| Windows | `Start-Quantriel.bat` | `Enable-Autostart-Windows.bat` | `Disable-Autostart-Windows.bat` |
 
 Double-click a launcher and your browser opens <http://127.0.0.1:8767>. From a terminal, run `python3 server.py` (change the port with `PORT=8770 python3 server.py`).
 

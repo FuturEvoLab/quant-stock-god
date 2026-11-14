@@ -1,5 +1,5 @@
 #!/bin/bash
-# Quant Stock God — start automatically at macOS login and keep running in the background, so watchlist and
+# Quantriel — start automatically at macOS login and keep running in the background, so watchlist and
 # major-news alerts keep working. Double-click again to reinstall with the latest settings; to undo, double-click
 # Disable-Autostart-macOS.command.
 cd "$(dirname "$0")"
@@ -16,7 +16,7 @@ fi
 mkdir -p "$HOME/Library/LaunchAgents" "$LOGDIR"
 # If a manually started copy holds the port, ask the user to close it so two servers don't fight over it
 if lsof -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1 && ! launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
-  echo "Port $PORT is already in use (maybe a manually started Quant Stock God or another program). Close it, then double-click this file again."
+  echo "Port $PORT is already in use (maybe a manually started Quantriel or another program). Close it, then double-click this file again."
   lsof -iTCP:$PORT -sTCP:LISTEN
   read -n 1 -s -r -p "Press any key to close…"; exit 1
 fi

@@ -44,9 +44,10 @@ def main(out):
     html = open(os.path.join(out, "index.html"), encoding="utf-8").read()
     html, n = re.subn(r'(<script src="boot\.js[^"]*"></script>)', rf'\1\n<script src="demo.js" data-generated="{data["generated"]}"></script>', html, count=1)
     assert n == 1, "index.html 里找不到 boot.js"
-    html = html.replace("<title>量化股神</title>", "<title>量化股神 · Quant Stock God — Demo</title>")
+    html = html.replace("<title>量化股神</title>", "<title>量化股神 · Quantriel — Demo</title>")
     open(os.path.join(out, "index.html"), "w", encoding="utf-8").write(html)
     open(os.path.join(out, ".nojekyll"), "w").close()  # 让 GitHub Pages 原样发布，不经过 Jekyll
+    open(os.path.join(out, "CNAME"), "w").write("quantriel.futurevolab.com\n")  # GitHub Pages 自定义域名；docs/ 每次重建都会清空，所以在这里写
     json.dump(data, open(os.path.join(out, "demo-data.json"), "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     size = os.path.getsize(os.path.join(out, "demo-data.json")) // 1024
     print(f"演示版已生成：{out}（{len(data)} 份接口数据，demo-data.json {size} KB）")
