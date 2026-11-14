@@ -1,0 +1,10 @@
+// 在线演示版 → https://quantriel.futurevolab.com （Cloudflare Workers 静态资源，无后端代码）
+// 发布：python3 tools/build_demo.py docs && npx wrangler@4 deploy
+{
+  "name": "quantriel-demo",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "./docs" },
+  "routes": [{ "pattern": "quantriel.futurevolab.com", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false
+}

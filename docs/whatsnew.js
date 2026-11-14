@@ -4,6 +4,27 @@
 
 const RELEASES = [
   {
+    v: "1.5.4", date: "2026-11-14", time: "17:01",
+    zh: [
+      "在线演示版搬到 quantriel.futurevolab.com，不需要也不接收任何 API Key 或邮箱，设置表单已锁定。",
+      "设置页说明每个 Key 只发给哪个官方网站，可以一键删除已保存的 Key；保存时检查格式。移除了从未使用的 Finnhub 栏位。",
+      "新增「免责声明 · 隐私」（侧栏链接 / 设置页）。",
+      "安全加固：密钥文件写入时即为仅本人可读、在线版加上安全响应头、修复异常链接可能让页面无法启动的问题。",
+    ],
+    ja: [
+      "オンラインデモを quantriel.futurevolab.com に移しました。API キーやメールアドレスは不要で受け付けもせず、設定フォームはロックされています。",
+      "設定ページに各キーの送信先（公式サイトのみ）を表示し、保存したキーをワンクリックで削除できるようにしました。保存時に形式もチェックします。使われていなかった Finnhub の欄を削除しました。",
+      "「免責事項・プライバシー」を追加しました（サイドバーのリンク / 設定ページ）。",
+      "セキュリティ強化：キーのファイルは作成時から本人のみ読み取り可に、オンライン版にセキュリティヘッダーを追加、不正なリンクで画面が起動しなくなる問題を修正しました。",
+    ],
+    en: [
+      "The online demo moved to quantriel.futurevolab.com. It needs and accepts no API keys or email, and its Settings form is locked.",
+      "Settings now shows the one official site each key is sent to, lets you delete a saved key in one click, and checks key formats on save. The unused Finnhub field is gone.",
+      "New Disclaimer · Privacy section (sidebar link and Settings page).",
+      "Security hardening: the key file is private from the moment it is written, the online demo sends security headers, and a malformed link can no longer stop the page from starting.",
+    ],
+  },
+  {
     v: "1.5.3", date: "2026-11-14", time: "15:54",
     zh: ["新增「更新公告」：版本更新后自动弹出一次本次更新内容，侧栏和设置页可以随时查看全部版本记录。"],
     ja: ["「更新のお知らせ」を追加：アップデート後に一度だけ変更内容を表示します。サイドバーと設定ページからいつでも全バージョンの記録を見られます。"],

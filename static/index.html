@@ -103,6 +103,7 @@
         <svg id="sys-spark" class="spark" viewBox="0 0 100 22" preserveAspectRatio="none" aria-hidden="true"><path class="area"/><path class="line"/><circle r="1.8"/></svg>
       </div>
       <div class="lang-switch" translate="no"><button type="button" data-lang="en">EN</button><button type="button" data-lang="ja">日本語</button><button type="button" data-lang="zh">中文</button></div>
+      <a id="legal-open" class="legal-link" href="#legal">免责声明 · 隐私</a>
       <button id="wn-open" class="ghost theme-btn wn-open" type="button" title="查看每个版本更新了什么">
         <svg viewBox="0 0 24 24"><path d="M3 10v4h3l5 4V6L6 10z"/><path d="M15 9a4 4 0 010 6M18 6a8 8 0 010 12"/></svg>
         <span>更新公告</span><span id="wn-badge" class="badge wn-new" translate="no" hidden>NEW</span>
@@ -495,25 +496,27 @@
       </header>
       <div class="settings-grid">
         <form id="cfg-form" class="card stack">
+          <div class="key-note" id="key-note">
+            <b>全部可选：不填也能用免费数据</b>
+            <span>邮箱和 Key 只保存在你这台电脑的 data/secrets.json（磁盘支持时设为仅本人可读），只发给下面注明的官方网站，不会上传到别处，也不会出现在导出的备份里。页面不会显示已保存的内容。</span>
+          </div>
           <label class="setting">
-            <div class="setting-head"><b>SEC EDGAR 联系邮箱</b><span class="chip">聪明钱需要</span><span id="cfg-sec" class="badge"></span></div>
-            <input id="cfg-sec_email" type="email" placeholder="留空则不修改" autocomplete="off">
+            <div class="setting-head"><b>SEC EDGAR 联系邮箱</b><span class="chip">聪明钱需要</span><span id="cfg-sec" class="badge"></span><button type="button" class="small ghost key-clear" data-clear="sec_email" hidden>删除</button></div>
+            <input id="cfg-sec_email" type="email" placeholder="留空则不修改" autocomplete="off" spellcheck="false" maxlength="200">
             <small class="muted">SEC 要求每个请求的 User-Agent 里带联系邮箱，不需要注册。只用于向 SEC 表明身份。</small>
+            <small class="key-dest">只发送给 <span translate="no">sec.gov</span></small>
           </label>
           <label class="setting">
-            <div class="setting-head"><b>FRED API Key</b><span class="chip">可选</span><span id="cfg-fred" class="badge"></span></div>
-            <input id="cfg-fred_key" type="password" placeholder="留空则不修改" autocomplete="off">
+            <div class="setting-head"><b>FRED API Key</b><span class="chip">可选</span><span id="cfg-fred" class="badge"></span><button type="button" class="small ghost key-clear" data-clear="fred_key" hidden>删除</button></div>
+            <input id="cfg-fred_key" type="password" placeholder="留空则不修改" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore spellcheck="false" maxlength="200">
             <small class="muted">美联储经济数据（利率、通胀、就业等）。免费注册：<a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank" rel="noopener">fred.stlouisfed.org</a></small>
+            <small class="key-dest">只发送给 <span translate="no">api.stlouisfed.org</span></small>
           </label>
           <label class="setting">
-            <div class="setting-head"><b>EIA API Key</b><span class="chip">可选</span><span id="cfg-eia" class="badge"></span></div>
-            <input id="cfg-eia_key" type="password" placeholder="留空则不修改" autocomplete="off">
+            <div class="setting-head"><b>EIA API Key</b><span class="chip">可选</span><span id="cfg-eia" class="badge"></span><button type="button" class="small ghost key-clear" data-clear="eia_key" hidden>删除</button></div>
+            <input id="cfg-eia_key" type="password" placeholder="留空则不修改" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore spellcheck="false" maxlength="200">
             <small class="muted">美国能源信息署：原油 / 天然气库存周报。免费注册：<a href="https://www.eia.gov/opendata/register.php" target="_blank" rel="noopener">eia.gov/opendata</a></small>
-          </label>
-          <label class="setting">
-            <div class="setting-head"><b>Finnhub API Key</b><span class="chip">可选 · v2</span><span id="cfg-finnhub" class="badge"></span></div>
-            <input id="cfg-finnhub_key" type="password" placeholder="留空则不修改" autocomplete="off">
-            <small class="muted">实时报价和公司新闻（免费档）。注册：<a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io</a></small>
+            <small class="key-dest">只发送给 <span translate="no">api.eia.gov</span></small>
           </label>
           <div><button class="primary">保存设置</button></div>
         </form>
@@ -548,6 +551,21 @@
               <tr><td>商品持仓</td><td>CFTC COT（每周二数据，周五公布）</td></tr>
             </table>
             <p class="muted">全部为免费公开数据，可能延迟、缺失或被限流。仅供个人研究，不构成投资建议。</p>
+          </div>
+          <div class="card legal" id="legal">
+            <h3>免责声明</h3>
+            <ul class="legal-list">
+              <li>本工具仅供个人学习和研究。所有内容都不构成投资建议、要约或招揽，也不是对任何证券或商品的推荐。</li>
+              <li>数据来自第三方免费公开来源（Yahoo Finance、SEC、CFTC、FRED、EIA、新闻 RSS 等），可能延迟、出错或中断；作者不保证其准确、完整或及时。</li>
+              <li>页面里的评分、新闻影响、回测和价格区间都是基于历史数据和固定规则的统计描述，不是预测；过去的表现不代表未来。</li>
+              <li>投资有风险，请自行判断并自负责任。因使用本工具造成的任何损失，作者不承担责任。</li>
+              <li>本项目与上述数据提供方没有任何关联，各商标归其所有者。使用各数据源时须遵守其自身的条款。软件按 AGPL-3.0 许可“按原样”提供，不附带任何担保。</li>
+            </ul>
+            <h3>隐私说明</h3>
+            <ul class="legal-list">
+              <li>完整版（在你电脑上运行）：没有账户，没有统计或追踪。设置、自选和持仓只保存在你电脑的 data/ 目录里。程序只访问上面列出的数据网站；邮箱和 Key 只发给各自对应的官方网站。</li>
+              <li>在线演示版：纯静态页面，由 Cloudflare 托管。不使用 Cookie，不收集个人信息，也不接收任何输入；语言、配色等偏好只保存在你浏览器的本地存储里。托管方 Cloudflare 可能出于安全和运维记录标准访问日志（如 IP 地址）。</li>
+            </ul>
           </div>
         </div>
       </div>

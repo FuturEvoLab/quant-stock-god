@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.5.3"
+VERSION = "1.5.4"
 HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8767"))
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
@@ -65,11 +65,14 @@ def save_json(name, value):
     path = os.path.join(DATA, name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = f"{path}.{threading.get_ident()}.tmp"  # 每个线程用自己的临时文件，并发写同一个文件时不会互相踩
-    with open(tmp, "w", encoding="utf-8") as f:
+    private = name in ("config.json", "secrets.json")  # 密钥和邮箱只允许本人读写（exFAT 等不支持权限的磁盘上会被忽略）
+    # 临时文件一创建就是 0600，不留“先按默认权限写、再改权限”的空档
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if private else 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(value, f, ensure_ascii=False)
-    if name in ("config.json", "secrets.json"):  # 密钥和邮箱只允许本人读写（exFAT 等不支持权限的磁盘上会被忽略）
+    if private:
         try:
-            os.chmod(tmp, 0o600)
+            os.chmod(tmp, 0o600)  # 文件已存在时 os.open 不改权限，这里补上
         except OSError:
             pass
     os.replace(tmp, path)
@@ -79,8 +82,13 @@ def cache_name(kind, key):
     return os.path.join("cache", kind, re.sub(r"[^A-Za-z0-9_.=-]", "_", key) + ".json")
 
 
-KEY_FIELDS = ("fred_key", "eia_key", "finnhub_key", "sec_email")
-KEY_ENV = (("fred_key", "FRED_API_KEY"), ("eia_key", "EIA_API_KEY"), ("finnhub_key", "FINNHUB_API_KEY"), ("sec_email", "SEC_EMAIL"))
+KEY_FIELDS = ("fred_key", "eia_key", "sec_email")
+KEY_ENV = (("fred_key", "FRED_API_KEY"), ("eia_key", "EIA_API_KEY"), ("sec_email", "SEC_EMAIL"))
+# 保存前检查格式：只接受官方格式的 Key（防止把别的东西拼进请求网址），邮箱只用于 SEC 的 User-Agent
+KEY_FORMAT = {"fred_key": (r"^[a-z0-9]{32}$", "FRED API Key 应为 32 位小写字母和数字"),
+              "eia_key": (r"^[A-Za-z0-9]{20,64}$", "EIA API Key 应为 20–64 位字母和数字"),
+              "sec_email": (r"^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$", "邮箱格式不正确")}
+UNUSED_SECRETS = ("finnhub_key",)  # 旧版本预留、从未使用过的 Key：启动时从 secrets.json 删掉，不留在本机
 SYM_RE = r"^[A-Z0-9^=.\-]{1,20}$"
 
 
@@ -118,7 +126,16 @@ def config():
 def migrate_secrets():
     """把 config.json 里的密钥搬到 secrets.json（只在启动时做一次）"""
     with _store_lock:
+        sec = load_json("secrets.json", {})
+        if any(k in sec for k in UNUSED_SECRETS):
+            for k in UNUSED_SECRETS:
+                sec.pop(k, None)
+            save_json("secrets.json", sec)
         cfg = load_json("config.json", {})
+        if any(k in cfg for k in UNUSED_SECRETS):
+            for k in UNUSED_SECRETS:
+                cfg.pop(k, None)
+            save_json("config.json", cfg)
         if not any(cfg.get(k) for k in KEY_FIELDS):
             return False
         sec = load_json("secrets.json", {})
@@ -3127,9 +3144,13 @@ class Handler(SimpleHTTPRequestHandler):
                     for k in KEY_FIELDS:
                         if k in b:
                             v = str(b[k]).strip()[:200]
-                            if k == "sec_email" and v and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
-                                raise ApiError("邮箱格式不正确")
-                            sec[k] = v
+                            pat, msg = KEY_FORMAT[k]
+                            if v and not re.match(pat, v):
+                                raise ApiError(msg)
+                            if v:
+                                sec[k] = v
+                            else:
+                                sec.pop(k, None)  # 空值 = 删除这个 Key
                     save_json("secrets.json", sec)
                     cfg = load_json("config.json", {})
                     if any(k in cfg for k in KEY_FIELDS):  # 旧版本留在 config.json 里的密钥一并清掉
@@ -3137,7 +3158,8 @@ class Handler(SimpleHTTPRequestHandler):
                             cfg.pop(k, None)
                         save_json("config.json", cfg)
             cfg = config()
-            return {k: bool(cfg.get(k)) for k in KEY_FIELDS}  # 只返回是否已配置，不回显内容
+            return {**{k: bool(cfg.get(k)) for k in KEY_FIELDS},  # 只返回是否已配置，不回显内容
+                    "env": [k for k, env in KEY_ENV if os.environ.get(env)]}  # 这几项来自环境变量，页面上删不掉
         raise ApiError(f"未知接口: {method} {path}")
 
     def do_GET(self):

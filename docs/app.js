@@ -363,13 +363,15 @@ setInterval(() => { if (!document.hidden && $("#tab-watch").classList.contains("
 
 // ---------------------------------------------------------------- 设置 / 数据源状态
 
-const CFG_FIELDS = { sec_email: "sec", fred_key: "fred", eia_key: "eia", finnhub_key: "finnhub" };
+const CFG_FIELDS = { sec_email: "sec", fred_key: "fred", eia_key: "eia" };
 async function loadConfig() {
   const c = (state.cfg = await api("/api/config"));
   for (const [k, id] of Object.entries(CFG_FIELDS)) {
     const el = $(`#cfg-${id}`);
     el.className = `badge ${c[k] ? "ok" : "no"}`;
     el.textContent = c[k] ? "已配置" : "未配置";
+    const del = $(`[data-clear="${k}"]`);
+    if (del) del.hidden = !c[k] || (c.env || []).includes(k); // 来自环境变量的 Key 不能在页面上删除
   }
   renderSources();
   return c;
@@ -400,6 +402,23 @@ $("#cfg-form").addEventListener("submit", async (e) => {
     await loadConfig();
     toast("已保存");
   } catch (err) { toast(err.message, 4000); }
+});
+// 删除已保存的邮箱 / Key（发空值给服务端即删除）
+$("#cfg-form").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-clear]");
+  if (!b) return;
+  e.preventDefault();
+  if (!confirm("从本机删除这项设置？")) return;
+  try {
+    await api("/api/config", { method: "POST", body: { [b.dataset.clear]: "" } });
+    await loadConfig();
+    toast("已删除");
+  } catch (err) { toast(err.message, 4000); }
+});
+$("#legal-open").addEventListener("click", (e) => {
+  e.preventDefault();
+  switchTab("settings");
+  setTimeout(() => $("#legal").scrollIntoView({ behavior: "smooth", block: "start" }), 60);
 });
 TAB_LOADERS.settings = () => loadConfig();
 
@@ -498,7 +517,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   try { tab = localStorage.getItem("qs-tab") || "market"; } catch {}
   // 先拿到设置和自选列表（都是本地数据，很快），再恢复上次的页面；否则聪明钱页会误报“未填邮箱”，自选页会先闪一下空列表
   const [cfg] = await Promise.all([loadConfig().catch(() => ({})), loadWatch(false).catch(() => {})]);
-  if (tab !== "market" && $(`#tab-${tab}`)) switchTab(tab);
+  if (tab !== "market" && document.getElementById(`tab-${tab}`)?.classList.contains("tab")) switchTab(tab);
   else TAB_LOADERS.market?.();
   boot.line("LINK YAHOO FINANCE", "OK");
   boot.line("LINK SEC EDGAR", cfg.sec_email ? "OK" : "NO EMAIL");

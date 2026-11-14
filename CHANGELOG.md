@@ -2,6 +2,23 @@
 
 版本号显示在「设置 → 服务」里；`/api/version` 也会返回。
 
+## 1.5.4 — 2026-11-14
+
+### 不让陌生人填 Key
+- 在线演示版改由 Cloudflare 发布在 **https://quantriel.futurevolab.com**（`wrangler.jsonc`，静态资源，无后端代码），GitHub Pages 地址保留为备用。演示版的设置表单整体锁定，并说明“在线版不需要、也不接收任何 API Key 或邮箱”。
+- 设置页：顶部说明 Key 只存在本机 `data/secrets.json`；每个字段标明只发送到的官方域名（sec.gov / api.stlouisfed.org / api.eia.gov）；已配置的 Key 可以一键删除（发空值即删除）；保存时检查格式（FRED 32 位、EIA 20–64 位、邮箱仅 ASCII），格式不对直接拒绝。
+- 移除从未使用的 Finnhub 栏位；旧版本留下的 `finnhub_key` 启动时从 `secrets.json` 清掉。
+- Key 输入框改为 `autocomplete="new-password"` 并忽略常见密码管理器，避免被当成网站密码保存。来自环境变量的 Key 不显示删除按钮。
+
+### 免责声明与隐私
+- 新增「免责声明 · 隐私」卡片（设置页底部，侧栏有链接）和 README 对应章节：不构成投资建议、数据不保证准确、作者不承担损失；完整版不收集任何数据，在线版无 Cookie、不接收输入。
+
+### 安全
+- `save_json` 写 `secrets.json` / `config.json` 时临时文件一创建就是 0600，不再有短暂的默认权限窗口。
+- 演示版只接受固定的 `?tab=` 取值，启动时也改用 `getElementById`，异常链接不会再让页面卡在启动阶段。
+- 演示版输出 `_headers`（CSP、HSTS、X-Frame-Options、nosniff、Referrer-Policy、Permissions-Policy、COOP、CORP），GitHub Pages 备用地址用 `<meta>` CSP 兜底；`.assetsignore` 排除 exFAT 上的 `._*` 元数据文件。
+- README 中密钥文件位置更正为 `data/secrets.json`。
+
 ## 1.5.3 — 2026-11-14
 
 - 新增**更新公告**：侧栏「更新公告」按钮和设置页卡片列出每个版本的发布时间（日本时间）和主要更新内容（三种语言）；版本更新后会自动弹出一次本次更新内容，有未读更新时按钮显示 NEW。第一次打开的新用户不会弹出。

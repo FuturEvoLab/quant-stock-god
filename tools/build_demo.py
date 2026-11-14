@@ -14,7 +14,6 @@ import json
 import os
 import re
 import shutil
-import socket
 import sys
 import tempfile
 import time
@@ -25,7 +24,16 @@ for k in ("FRED_API_KEY", "EIA_API_KEY", "FINNHUB_API_KEY", "SEC_EMAIL"):  # 演
 sys.path.insert(0, ROOT)
 import server as s  # noqa: E402
 
-DOMAIN = "quantriel.futurevolab.com"
+HEADERS = """/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Strict-Transport-Security: max-age=31536000
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+"""
 TICKER = ("^GSPC", "^HSI", "GC=F", "CL=F", "^VIX")  # 和 /api/ticker 一致
 
 
@@ -47,15 +55,18 @@ def main(out):
     html, n = re.subn(r'(<script src="boot\.js[^"]*"></script>)', rf'\1\n<script src="demo.js" data-generated="{data["generated"]}"></script>', html, count=1)
     assert n == 1, "index.html 里找不到 boot.js"
     html = html.replace("<title>量化股神</title>", "<title>量化股神 · Quantriel — Demo</title>")
+    # GitHub Pages 备用地址不支持 _headers，用 meta 补上 CSP（meta 里不能写 frame-ancestors）
+    csp = re.search(r"Content-Security-Policy: (.*)", HEADERS).group(1).replace("frame-ancestors 'none'; ", "")
+    html, n = re.subn(r"(<meta charset[^>]*>)", rf'\1\n<meta http-equiv="Content-Security-Policy" content="{csp}">', html, count=1)
+    assert n == 1, "index.html 里找不到 <meta charset>"
     open(os.path.join(out, "index.html"), "w", encoding="utf-8").write(html)
     open(os.path.join(out, ".nojekyll"), "w").close()  # 让 GitHub Pages 原样发布，不经过 Jekyll
-    # GitHub Pages 自定义域名（docs/ 每次重建都会清空，所以在这里写）。只有域名已经能解析时才写：
-    # 分支发布模式下 Pages 会直接采用 CNAME 文件，DNS 还没设好就写，演示站会跳到一个打不开的地址
-    try:
-        socket.gethostbyname(DOMAIN)
-        open(os.path.join(out, "CNAME"), "w").write(DOMAIN + "\n")
-    except OSError:
-        print(f"注意：{DOMAIN} 还不能解析，先不写 CNAME（演示站继续用 futurevolab.github.io/quantriel/）")
+    # 自定义域名 quantriel.futurevolab.com 由 Cloudflare（wrangler.jsonc，发布 docs/）提供；
+    # GitHub Pages 继续用 futurevolab.github.io/quantriel/ 作备用地址，所以这里不写 CNAME
+    # 安全响应头：Cloudflare 读取 _headers（GitHub Pages 会忽略它，作为普通文件发布，无害）
+    open(os.path.join(out, "_headers"), "w").write(HEADERS)
+    # wrangler 上传 docs/ 时跳过这些：exFAT 磁盘上每个文件都有 macOS 的 ._ 元数据副本，不能发布出去
+    open(os.path.join(out, ".assetsignore"), "w").write("._*\n.DS_Store\n.nojekyll\n")
     json.dump(data, open(os.path.join(out, "demo-data.json"), "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     size = os.path.getsize(os.path.join(out, "demo-data.json")) // 1024
     print(f"演示版已生成：{out}（{len(data)} 份接口数据，demo-data.json {size} KB）")

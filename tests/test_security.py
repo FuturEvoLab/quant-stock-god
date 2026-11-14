@@ -67,22 +67,35 @@ class Security(unittest.TestCase):
         self.assertEqual(st, 403)  # 千万不能真的重启测试进程
 
     def test_config_never_echoed(self):
-        st, _, data = self.write({"fred_key": "SECRET-KEY-123", "sec_email": "me@example.com"})
+        st, _, data = self.write({"fred_key": "a1b2c3d4e5f60718293a4b5c6d7e8f90", "sec_email": "me@example.com"})
         self.assertEqual(st, 200)
-        self.assertNotIn(b"SECRET", data)
+        self.assertNotIn(b"a1b2c3d4e5f60718293a4b5c6d7e8f90", data)
         self.assertNotIn(b"example.com", data)
         self.assertEqual(json.loads(data)["fred_key"], True)
+
+    def test_key_format_checked_and_empty_deletes(self):
+        """格式不对的 Key 不保存；发空值等于删除；不再使用的 finnhub_key 启动时清掉"""
+        s.save_json("secrets.json", {"fred_key": "a1b2c3d4e5f60718293a4b5c6d7e8f90", "finnhub_key": "x"})
+        for bad in ({"fred_key": "short"}, {"eia_key": "has space 1234567890abc"}, {"sec_email": "nope"}, {"fred_key": 123}):
+            st, _, _ = self.write(bad)
+            self.assertEqual(st, 400, bad)
+        s.migrate_secrets()
+        self.assertNotIn("finnhub_key", s.load_json("secrets.json", {}))
+        st, _, data = self.write({"fred_key": ""})
+        self.assertEqual(st, 200)
+        self.assertEqual(json.loads(data)["fred_key"], False)
+        self.assertNotIn("fred_key", s.load_json("secrets.json", {}))
 
     def test_secrets_live_in_their_own_file(self):
         """密钥写进 secrets.json，偏好留在 config.json；旧版本留在 config.json 里的密钥启动时搬走"""
         s.save_json("secrets.json", {})  # 其他测试可能已经写过密钥
-        st, _, _ = self.write({"eia_key": "EIA-SECRET-1"})
+        st, _, _ = self.write({"eia_key": "EIASECRET1234567890abcd"})
         self.assertEqual(st, 200)
         sec = json.load(open(os.path.join(s.DATA, "secrets.json"), encoding="utf-8"))
-        self.assertEqual(sec["eia_key"], "EIA-SECRET-1")
+        self.assertEqual(sec["eia_key"], "EIASECRET1234567890abcd")
         cfg = json.load(open(os.path.join(s.DATA, "config.json"), encoding="utf-8")) if os.path.exists(os.path.join(s.DATA, "config.json")) else {}
         self.assertFalse(any(k in cfg for k in s.KEY_FIELDS))
-        self.assertEqual(s.config()["eia_key"], "EIA-SECRET-1")
+        self.assertEqual(s.config()["eia_key"], "EIASECRET1234567890abcd")
         # 旧格式迁移
         s.save_json("config.json", {**cfg, "fred_key": "OLD-FRED", "alert_interval": 5})
         self.assertTrue(s.migrate_secrets())
@@ -91,7 +104,7 @@ class Security(unittest.TestCase):
         sec2 = json.load(open(os.path.join(s.DATA, "secrets.json"), encoding="utf-8"))
         self.assertNotIn("fred_key", cfg2)
         self.assertEqual(cfg2["alert_interval"], 5)
-        self.assertEqual((sec2["fred_key"], sec2["eia_key"]), ("OLD-FRED", "EIA-SECRET-1"))
+        self.assertEqual((sec2["fred_key"], sec2["eia_key"]), ("OLD-FRED", "EIASECRET1234567890abcd"))
         if os.name != "nt":
             self.assertEqual(os.stat(os.path.join(s.DATA, "secrets.json")).st_mode & 0o777, 0o600)
 

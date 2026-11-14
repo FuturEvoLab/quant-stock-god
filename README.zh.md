@@ -38,7 +38,7 @@
 
 | 项目 | 用途 | 不填会怎样 |
 |---|---|---|
-| SEC 联系邮箱（你自己的） | SEC 要求每个请求的 User-Agent 带联系邮箱；只用于向 SEC 表明身份，只存在你本机的 `data/config.json` | “聪明钱”（Form 4 / 13F）无法使用 |
+| SEC 联系邮箱（你自己的） | SEC 要求每个请求的 User-Agent 带联系邮箱；只用于向 SEC 表明身份，只存在你本机的 `data/secrets.json` | “聪明钱”（Form 4 / 13F）无法使用 |
 | FRED API Key | 宏观数据（2 年期、联邦基金利率、通胀预期、高收益债利差、CPI、失业率） | 只显示 Yahoo 的美债收益率 |
 | EIA API Key | 能源库存周报 | 使用公共 DEMO_KEY，偶尔被限流 |
 
@@ -56,7 +56,7 @@
 | 03 聪明钱 | **Form 4 内部人买入**：输入美股代码，扫描最近 N 份 Form 4，只取交易代码 P（公开市场买入），计算每笔买入后 30 / 90 天收益、相对 S&P 500 的超额收益，以及每位内部人的 90 天命中率。**13F 机构持仓**：可配置的基金列表（默认 Berkshire、Scion、Pershing Square、Appaloosa、Duquesne、Baupost、Third Point、Tiger Global），对比最近两个季度的新建仓 / 加仓 / 减仓 / 清仓，用 Cytoscape 画基金 ↔ 股票关系图 |
 | 04 商品持仓 | CFTC COT（细分版、仅期货）黄金、白银、WTI 原油、铜、天然气的“管理资金”净持仓、周变化、占总持仓比例，以及在最近 3 年中的百分位和 COT 指数。**EIA 库存周报**：美国原油（不含 SPR）、汽油、馏分油、库欣原油、天然气（48 州）库存，周变化、同比，以及和过去 5 年同一周的均值 / 区间比较 |
 | 05 新闻影响 | 抓取最近 72 小时与原油、天然气、黄金、白银、铜相关的公开新闻标题，用约 28 条关键词规则识别驱动因素（OPEC+ 增减产、航道 / 供应中断、地缘冲突与停火、制裁、库存、美联储鹰鸽、通胀、美元、中国刺激 / 需求、关税、衰退担忧、飓风、寒潮 / 温和天气、LNG、矿山停产、央行购金、ETF 资金流、战略储备等），标出每条消息通常对各商品的影响方向和传导逻辑；按商品汇总“新闻倾向”（时间衰减、同一因素最多计 4 条），并和实际 1D / 1W 涨跌对照。页面底部可展开全部规则。**重大新闻提醒**：通常影响强（▲▲ / ▼▼）、标题直接提到所选商品、且 6 小时内至少 N 家不同媒体报道时推送 macOS 通知，同一“因素 + 商品”12 小时内只提醒一次，每 15 分钟检查，单独开关。**AI · 科技股**视图：抓取 AI / 半导体 / 大型科技 / 中概科技新闻，按“公司”（Nvidia、TSMC、微软、谷歌、Meta、亚马逊、腾讯、阿里等约 22 家上市公司 + OpenAI / Anthropic / xAI）和“话题”（AI 芯片、AI 资本开支、模型发布、财报、超预期 / 不及预期、出口管制、监管、并购 / IPO、合作、供应链、分析师评级、泡沫担忧等 19 类）打标签，按公司汇总新闻倾向并对照股价 1D / 1W，可按标签或公司筛选 |
-| 06 设置 | SEC 联系邮箱、FRED / EIA API Key（可选），Finnhub API Key（v2 预留），只存本机 `data/config.json`，页面不回显 |
+| 06 设置 | SEC 联系邮箱、FRED / EIA API Key（全部可选），只存本机 `data/secrets.json`（仅本人可读），每项只发给对应官方网站，页面不回显，可随时删除；在线演示版不收任何 Key |
 
 ## 数据源与延迟
 
@@ -98,13 +98,12 @@
 
 ## 在线演示
 
-`docs/` 是界面的静态副本：`demo.js` 拦截页面的 `/api/` 请求，用录好的数据快照回答，所以不需要后端就能在 GitHub Pages 上运行。`tools/build_demo.py` 用一个全新的空数据目录录制快照（默认自选、不用任何 Key、不含个人数据）；演示版不能搜索、改设置或推送提醒，也不含聪明钱（SEC 需要联系邮箱）。重新生成：`python3 tools/build_demo.py docs`。链接参数：`?lang=en|ja|zh`、`?tab=market|watch|smart|cot|news|settings`、`?view=tech`、`?skin=gold|light`。
+`docs/` 是界面的静态副本：`demo.js` 拦截页面的 `/api/` 请求，用录好的数据快照回答，所以不需要后端，作为静态文件由 Cloudflare 托管在 quantriel.futurevolab.com（备用地址 futurevolab.github.io/quantriel/），用 `npx wrangler@4 deploy` 发布（见 `wrangler.jsonc`）。`tools/build_demo.py` 用一个全新的空数据目录录制快照（默认自选、不用任何 Key、不含个人数据）；演示版不能搜索、改设置或推送提醒（设置表单已锁定），也不含聪明钱（SEC 需要联系邮箱）。重新生成：`python3 tools/build_demo.py docs`。链接参数：`?lang=en|ja|zh`、`?tab=market|watch|portfolio|quant|smart|cot|news|settings`、`?view=tech`、`?skin=gold|light`。
 
 ## v2 计划
 
 - 港股通个股持股变化（目前只有每天成交额前 10 股票的买卖额）
 - **港股内部人 / 大股东权益披露**（HKEXnews 披露易）
-- Finnhub 实时报价与新闻（Key 槽位已在设置页预留）
 
 ## 外观
 
@@ -123,7 +122,7 @@ python3 tools/make_gold_css.py
 - 防点击劫持：页面禁止被任何网站嵌入（`frame-ancestors 'none'` / `X-Frame-Options: DENY`）。
 - 内容安全策略：只允许加载本服务自己的脚本、样式和字体，禁止内联脚本和外部资源；新闻标题等外部文本一律转义，外部链接只允许 http(s)。
 - 远程数据：单个响应超过 25 MB 直接拒绝；XML 含实体声明（“XML 炸弹”）直接拒绝解析。
-- 密钥：API Key 和邮箱只存在 `data/config.json`（尽量设为仅本人可读，不入 git），页面只显示“已配置 / 未配置”，错误信息和缓存里不含 Key。
+- 密钥：API Key 和邮箱全部可选，只存在 `data/secrets.json`（磁盘支持时仅本人可读，不入 git），每项只发给对应的官方网站；保存时检查格式，页面只显示“已配置 / 未配置”，可随时删除；错误信息和缓存里不含 Key。在线演示版不收任何 Key。
 - 输入校验：代码、名称、数字都有格式和长度限制，NaN / 无穷大会被拒绝。
 - 安全回归测试在 `tests/test_security.py`，会在随机端口起一个真实服务逐项验证。
 
@@ -156,11 +155,19 @@ tools/build_demo.py       生成在线演示（docs/）
 demo/                     演示版专用脚本和样式
 docs/                     生成好的在线演示
 assets/                   README 截图
-data/                     本地数据（config.json、watchlist.json、managers.json、alerts.json、cache/）
+data/                     本地数据（config.json、secrets.json、watchlist.json、managers.json、alerts.json、cache/）
 Start-Quantriel.command  双击启动（Windows 用 .bat）
 ```
 
-`data/config.json` 里有你的邮箱和 API Key，不要分享或上传这个文件夹（`.gitignore` 已排除）。
+`data/secrets.json` 里有你的邮箱和 API Key，不要分享或上传这个文件夹（`.gitignore` 已排除）。
+
+## 免责声明与隐私
+
+- 本工具仅供个人学习和研究，不构成投资建议、要约或招揽。评分、新闻影响、回测和价格区间是对历史数据的统计描述，不是预测。第三方数据可能延迟、出错或缺失。投资有风险，因使用本工具造成的任何损失，作者不承担责任。本项目与各数据提供方没有关联。
+- **完整版**：没有账户、统计或追踪，所有数据都在你电脑的 `data/` 里，只访问列出的数据网站。
+- **在线演示版**：Cloudflare 托管的静态页面，不用 Cookie，不接收任何输入；偏好只存在浏览器本地存储里。Cloudflare 可能出于安全记录标准访问日志。
+
+完整条款见应用的“设置”页（中 / 日 / 英）。
 
 ## 许可证与联系
 

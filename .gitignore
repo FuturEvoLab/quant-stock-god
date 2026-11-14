@@ -7,3 +7,4 @@ __pycache__/
 .DS_Store
 # 本机的 Claude Code 预览配置
 .claude/
+.wrangler/

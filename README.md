@@ -54,7 +54,7 @@ The first time on macOS, a downloaded launcher may be blocked as coming from an 
 
 ### Optional settings (all free)
 
-Enter these on the Settings page. They are stored only in `data/config.json` on your machine and are never shown back on the page.
+Enter these on the Settings page. They are all optional. They are stored only in `data/secrets.json` on your machine (readable only by you where the disk supports it). Each one is sent only to its own official site, it is never shown back on the page, and you can delete it at any time. The online demo never asks for or accepts keys.
 
 | Item | Used for | If not set |
 |---|---|---|
@@ -73,7 +73,7 @@ The full specification and limitations are in the Chinese [README.zh.md](README.
 
 ## Online demo
 
-The demo in `docs/` is a static copy of the UI that answers its API calls from a recorded snapshot, so it runs on GitHub Pages with no backend. `tools/build_demo.py` records the snapshot with a fresh, empty data folder (default watchlist, no keys, no personal data). Searching, settings and alerts are disabled, and Smart Money is not included because SEC requires a contact email. Rebuild it with `python3 tools/build_demo.py docs`. Link parameters: `?lang=en|ja|zh`, `?tab=market|watch|smart|cot|news|settings`, `?view=tech`, `?skin=gold|light`.
+The demo in `docs/` is a static copy of the UI that answers its API calls from a recorded snapshot, so it runs as static files with no backend. It is served by Cloudflare at quantriel.futurevolab.com, with futurevolab.github.io/quantriel/ as a backup, and deployed with `npx wrangler@4 deploy` (see `wrangler.jsonc`). `tools/build_demo.py` records the snapshot with a fresh, empty data folder (default watchlist, no keys, no personal data). Searching, settings and alerts are disabled, the Settings form is locked, and Smart Money is not included because SEC requires a contact email. Rebuild it with `python3 tools/build_demo.py docs`. Link parameters: `?lang=en|ja|zh`, `?tab=market|watch|portfolio|quant|smart|cot|news|settings`, `?view=tech`, `?skin=gold|light`.
 
 ## Running the tests
 
@@ -82,6 +82,14 @@ python3 -m unittest discover tests
 ```
 
 There are 71 offline tests (no network, no notifications). GitHub Actions runs them on every push (Ubuntu with Python 3.9 and 3.12, and macOS).
+
+## Disclaimer and privacy
+
+- Quantriel is for personal learning and research. Nothing in it is investment advice, an offer or a solicitation. Scores, news impact, backtests and price ranges are statistical descriptions of past data, not forecasts. Data from third-party sources may be delayed, wrong or missing. Investing involves risk, and the author is not liable for any loss arising from use of this tool. The project is not affiliated with any data provider.
+- **Full version:** no account, no analytics, no tracking. Everything stays in `data/` on your computer. The app contacts only the listed data sites.
+- **Online demo:** static pages hosted by Cloudflare, no cookies, no input accepted. Preferences stay in your browser's local storage. Cloudflare may keep standard access logs for security.
+
+The full text is on the Settings page of the app (in English, Japanese and Chinese).
 
 ## License and contact
 

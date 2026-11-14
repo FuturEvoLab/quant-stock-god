@@ -14,7 +14,8 @@
   const params = new URLSearchParams(location.search);
   const set = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
   if (["en", "ja", "zh"].includes(params.get("lang"))) set("qs-lang", params.get("lang"));
-  if (params.get("tab")) set("qs-tab", params.get("tab"));
+  const TABS = ["market", "watch", "portfolio", "quant", "smart", "cot", "news", "settings"];
+  if (TABS.includes(params.get("tab"))) set("qs-tab", params.get("tab"));
   if (params.get("view") === "tech") set("qs-news-view", "tech");
   const skin = params.get("skin");
   if (skin === "gold") { set("qs-theme", "dark"); set("qs-palette", "gold"); document.documentElement.dataset.theme = "dark"; document.documentElement.dataset.palette = "gold"; }
@@ -25,10 +26,13 @@
   try { lang = localStorage.getItem("qs-lang") || "en"; } catch {}
   const T = {
     en: { bar: "Online demo: a recorded data snapshot. Searching, settings and alerts are disabled.", get: "Get the full version (runs locally) ↗",
+          keys: "The online demo never asks for or accepts API keys or your email. In the full version they stay on your own computer and are sent only to the official data sites.",
           err: "The online demo only contains a recorded snapshot and cannot fetch new data or change settings. Download the full version to run it locally." },
     ja: { bar: "オンラインデモ：記録済みのデータスナップショットです。検索・設定・通知は使えません。", get: "フル版をダウンロード（ローカルで実行）↗",
+          keys: "オンラインデモでは API キーやメールアドレスを入力することはなく、受け付けもしません。フル版ではキーは自分の PC にだけ保存され、公式のデータ提供元にだけ送られます。",
           err: "オンラインデモには記録済みのスナップショットしか含まれておらず、新しいデータの取得や設定の変更はできません。フル版をダウンロードしてローカルで実行してください。" },
     zh: { bar: "在线演示版：数据为录制好的快照，不能搜索、修改设置或推送提醒。", get: "下载完整版（本地运行）↗",
+          keys: "在线演示版不需要、也不接收任何 API Key 或邮箱。完整版里 Key 只保存在你自己的电脑上，只发给官方数据网站。",
           err: "在线演示版只包含录制好的数据快照，不能获取新数据或修改设置。完整功能请下载到本地运行。" },
   }[lang] || {};
 
@@ -60,6 +64,18 @@
     style.rel = "stylesheet";
     style.href = base + "demo.css";
     document.head.appendChild(style);
+    // 设置页：在线版不收任何密钥——输入框和按钮全部锁住，并说明原因
+    const form = document.getElementById("cfg-form");
+    if (form) {
+      form.classList.add("key-locked");
+      form.querySelectorAll("input, button").forEach((el) => { el.disabled = true; });
+      form.addEventListener("submit", (e) => e.preventDefault(), true);
+      const note = document.createElement("div");
+      note.className = "demo-keys";
+      note.setAttribute("translate", "no");
+      note.textContent = "🔒 " + T.keys;
+      form.prepend(note);
+    }
     if (params.get("clean") === "1") return;
     const bar = document.createElement("div");
     bar.className = "demo-bar";
